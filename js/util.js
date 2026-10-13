@@ -11,6 +11,21 @@ window.Util = {
     return String(s || '').replace(/[^0-9]/g, '');
   },
 
+  // 보기 좋게 끊어 표시: EAN-13 → X XXXXXX XXXXXX, UPC-A → X XXXXX XXXXX X, EAN-8 → XXXX XXXX
+  formatBarcode(s) {
+    const d = Util.normalizeBarcode(s);
+    const groups = { 13: [1, 6, 6], 12: [1, 5, 5, 1], 8: [4, 4] }[d.length];
+    if (!groups) return d;
+    let i = 0;
+    return groups.map(n => d.slice(i, (i += n))).join(' ');
+  },
+
+  // 입력 중인 숫자를 X XXXXXX XXXXXX 형태로 점진적으로 끊음
+  groupBarcodeTyping(s) {
+    const d = Util.normalizeBarcode(s).slice(0, 14);
+    return [d.slice(0, 1), d.slice(1, 7), d.slice(7)].filter(Boolean).join(' ');
+  },
+
   // EAN-13 / UPC-A / EAN-8 체크섬 검증. 길이가 맞지 않으면 null.
   validateBarcode(code) {
     if (!/^\d+$/.test(code) || ![8, 12, 13, 14].includes(code.length)) return null;

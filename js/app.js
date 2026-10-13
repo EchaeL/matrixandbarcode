@@ -121,7 +121,8 @@
 
     // 앨범 폼
     $('#album-form').addEventListener('submit', onAlbumSubmit);
-    $('#f-barcode').addEventListener('input', updateBarcodeHint);
+    $('#f-barcode').addEventListener('input', onBarcodeInput);
+    $('#f-barcode').addEventListener('blur', e => { e.target.value = Util.formatBarcode(e.target.value); });
     $('#f-barcode').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doLookup(); } });
     $('#btn-lookup').addEventListener('click', doLookup);
     $('#btn-scan').addEventListener('click', openScanner);
@@ -286,7 +287,7 @@
             <div class="artist">${esc(a.artist)}</div>
             <div class="meta">${meta}</div>
             <div class="codes">
-              ${a.barcode ? `<span>${esc(a.barcode)}</span>` : ''}
+              ${a.barcode ? `<span>${esc(Util.formatBarcode(a.barcode))}</span>` : ''}
               ${firstMatrix ? `<span>${esc(firstMatrix)}</span>` : ''}
             </div>
             ${a.rating ? `<div class="stars">${stars(a.rating)}</div>` : ''}
@@ -334,7 +335,7 @@
           <p class="hero-artist">${esc(a.artist)}</p>
           ${a.rating ? `<div class="stars">${stars(a.rating)}</div>` : ''}
           <dl class="kv">
-            ${row('바코드', a.barcode ? `<span class="mono">${esc(a.barcode)}</span>` : '')}
+            ${row('바코드', a.barcode ? `<span class="mono">${esc(Util.formatBarcode(a.barcode))}</span>` : '')}
             ${row('카탈로그', a.catalogNo ? `<span class="mono">${esc(a.catalogNo)}</span>` : '')}
             ${row('레이블', esc(a.label))}
             ${row('발매', esc([a.year, a.country].filter(Boolean).join(' · ')))}
@@ -438,6 +439,7 @@
       let v = el.name === 'tags' ? (a.tags || []).join(', ') : a[el.name];
       if (v !== undefined && v !== null) el.value = v;
     }
+    $('#f-barcode').value = Util.formatBarcode(a.barcode || '');
     const discs = a.discs && a.discs.length ? a.discs : [{}];
     $('#form-discs').innerHTML = '';
     discs.forEach((d, i) => $('#form-discs').appendChild(discEditor(d, i + 1, true)));
@@ -453,6 +455,17 @@
     p.classList.toggle('has', !!dataUrl);
     p.innerHTML = dataUrl ? `<img src="${dataUrl}" alt="표지">` : '<span>＋ 표지 등록</span>';
     $('#btn-cover-clear').classList.toggle('hidden', !dataUrl);
+  }
+
+  // 입력하면서 자동으로 띄어쓰기를 넣되, 커서 위치는 유지
+  function onBarcodeInput(e) {
+    const el = e.target;
+    const digitsBefore = Util.normalizeBarcode(el.value.slice(0, el.selectionStart)).length;
+    el.value = Util.groupBarcodeTyping(el.value);
+    let pos = 0, seen = 0;
+    while (pos < el.value.length && seen < digitsBefore) { if (/\d/.test(el.value[pos])) seen++; pos++; }
+    el.setSelectionRange(pos, pos);
+    updateBarcodeHint();
   }
 
   function updateBarcodeHint() {
@@ -635,7 +648,7 @@
     try {
       await Scanner.start($('#scan-video'), code => {
         dlg.close();
-        $('#f-barcode').value = Util.normalizeBarcode(code);
+        $('#f-barcode').value = Util.formatBarcode(code);
         updateBarcodeHint();
         toast('바코드 인식: ' + code);
         doLookup();
