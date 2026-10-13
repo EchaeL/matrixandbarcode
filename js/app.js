@@ -67,7 +67,7 @@
   async function moveLocalToCloud() {
     const local = await loadLocal();
     if (!local.length) return;
-    if (!confirm(`이 기기에 저장된 앨범 ${local.length}개를 내 계정으로 옮길까요?\n옮기면 다른 기기에서도 볼 수 있어요.`)) return;
+    if (!await ask({ title: '앨범을 계정으로 옮길까요?', message: `이 기기에 저장된 앨범 ${local.length}개를 내 계정으로 옮깁니다. 옮기면 다른 기기에서도 볼 수 있어요.`, ok: '옮기기' })) return;
     toast('앨범을 옮기는 중…');
     await store.putMany(local);
     await DB.clear();
@@ -79,7 +79,7 @@
   }
 
   async function signOut() {
-    if (!confirm('로그아웃할까요? 앨범은 계정에 그대로 남아 있습니다.')) return;
+    if (!await ask({ title: '로그아웃할까요?', message: '앨범은 계정에 그대로 남아 있습니다.', ok: '로그아웃' })) return;
     await Cloud.signOut();
     toast('로그아웃했습니다');
   }
@@ -247,14 +247,28 @@
     });
 
     // 팝업 바깥(어두운 배경)을 누르면 닫기. 앨범 폼에 입력 중이면 한 번 확인
-    $$('dialog').forEach(d => d.addEventListener('click', e => {
+    $$('dialog').forEach(d => d.addEventListener('click', async e => {
       if (e.target !== d) return;
       const r = d.getBoundingClientRect();
       const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
       if (inside) return;
-      if (d.id === 'dlg-album' && $('#album-form').elements.title.value.trim() && !confirm('입력 중인 내용을 닫을까요?')) return;
+      if (d.id === 'dlg-album' && $('#album-form').elements.title.value.trim() &&
+        !await ask({ title: '입력 중인 내용을 닫을까요?', message: '저장하지 않은 내용은 사라집니다.', ok: '닫기' })) return;
       d.close();
     }));
+
+    // 확인 팝업 버튼
+    $('#confirm-ok').addEventListener('click', () => {
+      const need = $('#confirm-input').dataset.need;
+      if (need && $('#confirm-input').value.trim() !== need) {
+        $('#confirm-input').focus();
+        $('#confirm-hint').textContent = `"${need}"를 정확히 입력해 주세요.`;
+        return;
+      }
+      $('#dlg-confirm').returnValue = 'ok';
+      $('#dlg-confirm').close();
+    });
+    $('#confirm-cancel').addEventListener('click', () => $('#dlg-confirm').close());
 
     // 사이드바
     $('#btn-menu').addEventListener('click', () => document.body.classList.toggle('nav-open'));
@@ -311,9 +325,14 @@
     $('#btn-form-add-disc').addEventListener('click', () => {
       $('#form-discs').appendChild(discEditor({}, $$('#form-discs .disc-editor').length + 1, true));
     });
-    $('#form-discs').addEventListener('click', e => {
+    $('#form-discs').addEventListener('click', async e => {
       if (!e.target.closest('.rm-disc')) return;
-      e.target.closest('.disc-editor').remove();
+      const el = e.target.closest('.disc-editor');
+      const d = readDiscEditor(el);
+      // 아무것도 적지 않은 CD는 바로 지우고, 내용이 있으면 확인
+      if ((d.matrix || d.mastering || d.mould || d.tracklist || d.notes || d.title) &&
+        !await ask({ title: `${$('.d-no', el).textContent}을(를) 뺄까요?`, message: '저장을 눌러야 최종 반영됩니다.', ok: '빼기', danger: true })) return;
+      el.remove();
       renumberEditors();
     });
     $('#f-cover-file').addEventListener('change', async e => {
@@ -328,7 +347,7 @@
 
     // CD 폼
     $('#disc-form').addEventListener('submit', onDiscSubmit);
-    $('#btn-disc-delete').addEventListener('click', deleteDisc);
+    $('#btn-disc-delete').addEventListener('click', () => deleteDisc(discTarget.albumId, discTarget.discId));
 
     // 백업
     $('#btn-export-json').addEventListener('click', exportJSON);
@@ -509,7 +528,10 @@
               <span class="disc-no">Disc ${i + 1}</span><span class="disc-type">${esc(d.type || 'CD')}</span>
               ${d.title ? `<p class="disc-sub">${esc(d.title)}</p>` : ''}
             </div>
-            <button class="btn small" data-edit-disc="${d.id}">수정</button>
+            <div class="disc-actions">
+              <button class="btn small" data-edit-disc="${d.id}">수정</button>
+              <button class="btn small danger" data-del-disc="${d.id}">삭제</button>
+            </div>
           </div>
           <table class="codes-table">
             ${code('매트릭스', d.matrix)}
@@ -573,6 +595,7 @@
     }, true);
     $('#btn-add-disc').onclick = () => openDiscForm(a.id, null);
     $$('[data-edit-disc]', page).forEach(b => { b.onclick = () => openDiscForm(a.id, b.dataset.editDisc); });
+    $$('[data-del-disc]', page).forEach(b => { b.onclick = () => deleteDisc(a.id, b.dataset.delDisc); });
   }
 
   // ---------- CD 편집기 (앨범 폼 / CD 폼 공용) ----------
@@ -802,7 +825,12 @@
 
   async function deleteAlbum(id) {
     const a = albums.find(x => x.id === id);
-    if (!a || !confirm(`「${a.title}」 앨범을 삭제할까요? 수록 CD 정보도 함께 삭제됩니다.`)) return;
+    if (!a) return;
+    if (!await ask({
+      title: '앨범을 삭제할까요?',
+      message: `「${a.title}」 — ${a.artist}\n수록 CD ${a.discs.length}장의 정보도 함께 삭제되며 되돌릴 수 없습니다.`,
+      ok: '삭제', danger: true,
+    })) return;
     persist(store.remove(id));
     albums = albums.filter(x => x.id !== id);
     renderShell();
@@ -841,15 +869,44 @@
     route();
   }
 
-  async function deleteDisc() {
-    const a = albums.find(x => x.id === discTarget.albumId);
-    if (!a || !discTarget.discId) return;
-    const idx = a.discs.findIndex(d => d.id === discTarget.discId);
-    if (!confirm(`Disc ${idx + 1}을(를) 삭제할까요?`)) return;
-    await saveAlbum({ ...a, discs: a.discs.filter(d => d.id !== discTarget.discId), updatedAt: Date.now() });
+  async function deleteDisc(albumId, discId) {
+    const a = albums.find(x => x.id === albumId);
+    if (!a || !discId) return;
+    const idx = a.discs.findIndex(d => d.id === discId);
+    const d = a.discs[idx];
+    if (!await ask({
+      title: `Disc ${idx + 1}을(를) 삭제할까요?`,
+      message: `「${a.title}」의 Disc ${idx + 1}${d.matrix ? ` (매트릭스 ${d.matrix})` : ''} 정보가 삭제되며 되돌릴 수 없습니다.`,
+      ok: '삭제', danger: true,
+    })) return;
+    await saveAlbum({ ...a, discs: a.discs.filter(x => x.id !== discId), updatedAt: Date.now() });
     $('#dlg-disc').close();
-    toast('CD를 삭제했습니다');
-    route();
+    toast(`Disc ${idx + 1}을(를) 삭제했습니다`);
+    refresh();
+  }
+
+  // 사이트 자체 확인 팝업 (브라우저 기본 확인창은 Safari 등에서 차단될 수 있어 사용하지 않음)
+  // typeToConfirm: 입력해야 진행되는 단어 (예: '삭제')
+  function ask({ title, message = '', ok = '확인', danger = false, typeToConfirm = '' }) {
+    const dlg = $('#dlg-confirm');
+    $('#confirm-title').textContent = title;
+    $('#confirm-msg').textContent = message;
+    const okBtn = $('#confirm-ok');
+    okBtn.textContent = ok;
+    okBtn.className = 'btn ' + (danger ? 'danger-solid' : 'primary');
+    const input = $('#confirm-input');
+    input.value = '';
+    input.dataset.need = typeToConfirm;
+    input.placeholder = typeToConfirm;
+    $('#confirm-field').classList.toggle('hidden', !typeToConfirm);
+    $('#confirm-need').textContent = typeToConfirm;
+    $('#confirm-hint').textContent = '';
+    dlg.returnValue = '';
+    return new Promise(resolve => {
+      dlg.addEventListener('close', () => resolve(dlg.returnValue === 'ok'), { once: true });
+      dlg.showModal();
+      (typeToConfirm ? input : $('#confirm-cancel')).focus();
+    });
   }
 
   // ---------- 스캐너 ----------
@@ -941,7 +998,7 @@
       if (!Array.isArray(list)) throw new Error('올바른 백업 파일이 아닙니다');
       const valid = list.filter(a => a && a.title && a.artist)
         .map(a => normalize({ ...a, id: a.id || uid(), createdAt: a.createdAt || Date.now() }));
-      if (!confirm(`${valid.length}건을 불러옵니다. 같은 앨범이 있으면 덮어씁니다. 계속할까요?`)) return;
+      if (!await ask({ title: `앨범 ${valid.length}개를 불러올까요?`, message: '같은 앨범이 이미 있으면 백업 파일 내용으로 덮어씁니다.', ok: '불러오기' })) return;
       await store.putMany(valid);
       albums = (await store.all()).map(normalize);
       renderShell();
@@ -954,8 +1011,11 @@
 
   async function clearAll() {
     if (!albums.length) return;
-    if (!confirm(`앨범 ${albums.length}건을 모두 삭제합니다. 백업하셨나요?`)) return;
-    if (prompt('확인을 위해 "삭제"를 입력하세요') !== '삭제') return;
+    if (!await ask({
+      title: '모든 앨범을 삭제할까요?',
+      message: `앨범 ${albums.length}개와 수록 CD 정보가 모두 삭제되며 되돌릴 수 없습니다.${user ? ' 계정에 저장된 데이터도 삭제됩니다.' : ''}`,
+      ok: '전체 삭제', danger: true, typeToConfirm: '삭제',
+    })) return;
     await store.clear();
     albums = [];
     renderShell();

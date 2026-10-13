@@ -11,8 +11,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=7">
-  <script src="js/device.js?v=7"></script>
+  <link rel="stylesheet" href="css/style.css?v=8">
+  <script src="js/device.js?v=8"></script>
 </head>
 <body>
   <!-- 모바일 상단바 -->
@@ -293,6 +293,22 @@
     </form>
   </dialog>
 
+  <!-- 확인 팝업 (삭제 등) -->
+  <dialog id="dlg-confirm" class="dialog confirm" aria-labelledby="confirm-title">
+    <div class="confirm-body">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-msg"></p>
+      <label id="confirm-field" class="confirm-field hidden">확인을 위해 <b id="confirm-need"></b>를 입력하세요
+        <input id="confirm-input" autocomplete="off">
+        <span id="confirm-hint" class="hint warn"></span>
+      </label>
+    </div>
+    <footer class="dlg-foot">
+      <button type="button" id="confirm-cancel" class="btn">취소</button>
+      <button type="button" id="confirm-ok" class="btn primary">확인</button>
+    </footer>
+  </dialog>
+
   <!-- 스캐너 -->
   <dialog id="dlg-scan" class="dialog">
     <header class="dlg-head">
@@ -317,13 +333,13 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-  <script src="js/firebase-config.js?v=7"></script>
-  <script src="js/dialog.js?v=7"></script>
-  <script src="js/db.js?v=7"></script>
-  <script src="js/util.js?v=7"></script>
-  <script src="js/lookup.js?v=7"></script>
-  <script src="js/scanner.js?v=7"></script>
-  <script src="js/cloud.js?v=7"></script>
-  <script src="js/app.js?v=7"></script>
+  <script src="js/firebase-config.js?v=8"></script>
+  <script src="js/dialog.js?v=8"></script>
+  <script src="js/db.js?v=8"></script>
+  <script src="js/util.js?v=8"></script>
+  <script src="js/lookup.js?v=8"></script>
+  <script src="js/scanner.js?v=8"></script>
+  <script src="js/cloud.js?v=8"></script>
+  <script src="js/app.js?v=8"></script>
 </body>
 </html>

@@ -540,3 +540,21 @@ html[data-view=mobile] .input-row .btn { flex: 1; }
 html[data-view=mobile] .disc-grid { grid-template-columns: 1fr 1fr; }
 html[data-view=mobile] .disc-grid .sids { grid-template-columns: 1fr; }
 html[data-view=mobile] .toast { bottom: calc(84px + env(safe-area-inset-bottom)); }
+
+/* ---------- 확인 팝업 ---------- */
+.dialog.confirm { width: min(400px, calc(100vw - 40px)); border-radius: 16px; }
+.confirm-body { padding: 24px 24px 8px; }
+.confirm-body h2 { margin: 0 0 8px; font-size: 1.12rem; }
+.confirm-body p { margin: 0; color: var(--ink-2); font-size: .92rem; white-space: pre-line; word-break: keep-all; }
+.confirm-field { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; font-size: .85rem; color: var(--ink-2); }
+.dialog.confirm .dlg-foot { position: static; justify-content: flex-end; background: var(--white); border-top: 0; padding: 16px 24px 20px; }
+.dialog.confirm .dlg-foot .btn { min-width: 84px; }
+.btn.danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+.btn.danger-solid:hover { background: #a93226; border-color: #a93226; }
+html[data-view=mobile] .dialog.confirm {
+  width: calc(100vw - 40px); max-width: 400px; height: -webkit-fit-content; height: fit-content; max-height: calc(100dvh - 40px); border-radius: 16px; margin: auto;
+}
+html[data-view=mobile] .dialog.confirm .dlg-foot { padding: 12px 20px 20px; }
+html[data-view=mobile] .dialog.confirm .dlg-foot .btn { flex: 1; }
+
+.disc-actions { display: flex; gap: 6px; flex: none; }
