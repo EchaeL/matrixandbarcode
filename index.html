@@ -11,7 +11,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=6">
+  <link rel="stylesheet" href="css/style.css?v=7">
+  <script src="js/device.js?v=7"></script>
 </head>
 <body>
   <!-- 모바일 상단바 -->
@@ -20,9 +21,10 @@
       <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
     </button>
     <a href="#/" class="logo small" aria-label="홈"><span class="logo-mark"></span><span class="logo-text">Matrix &amp; Barcode</span></a>
-    <button class="icon-btn" data-action="add" aria-label="앨범 등록">
+    <button class="icon-btn pc-only" data-action="add" aria-label="앨범 등록">
       <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
     </button>
+    <a href="#/settings" id="mb-account" class="mb-account mobile-only" aria-label="내 계정"></a>
   </header>
 
   <div class="layout">
@@ -55,6 +57,29 @@
     </aside>
     <div id="scrim" class="scrim"></div>
 
+    <!-- 모바일 하단 탭바 -->
+    <nav class="tabbar" aria-label="메뉴">
+      <a href="#/" data-tab="list">
+        <svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
+        <span>컬렉션</span>
+      </a>
+      <a href="#/artists" data-tab="artists">
+        <svg viewBox="0 0 24 24"><path d="M5 5h3v14H5zM10 5h1.5v14H10zM13.5 5h3v14h-3zM18.5 5H20v14h-1.5z"/></svg>
+        <span>기록</span>
+      </a>
+      <button class="tab-add" data-action="add" aria-label="앨범 등록">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <a href="#/stats" data-tab="stats">
+        <svg viewBox="0 0 24 24"><path d="M5 20V11M12 20V5M19 20v-6"/></svg>
+        <span>통계</span>
+      </a>
+      <a href="#/settings" data-tab="settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="3.5"/><path d="M5 20c1.2-3.5 4-5 7-5s5.8 1.5 7 5"/></svg>
+        <span>내 정보</span>
+      </a>
+    </nav>
+
     <main id="main">
       <!-- 목록 -->
       <section id="page-list" class="page">
@@ -63,6 +88,12 @@
             <h1 id="list-title">전체 앨범</h1>
             <p id="result-count" class="muted"></p>
           </div>
+        </div>
+        <div class="status-chips mobile-only" id="status-chips">
+          <button data-status="all">전체</button>
+          <button data-status="owned">보유 중</button>
+          <button data-status="wishlist">위시리스트</button>
+          <button data-status="sold">처분함</button>
         </div>
         <div class="toolbar">
           <input id="search" type="search" placeholder="제목, 아티스트, 바코드, 매트릭스 검색" autocomplete="off">
@@ -95,6 +126,12 @@
       <!-- 앨범 상세 -->
       <section id="page-album" class="page"></section>
 
+      <!-- 기록 (아티스트별) -->
+      <section id="page-artists" class="page">
+        <div class="page-head"><div><h1>기록</h1><p class="muted">아티스트별로 모아 보기</p></div></div>
+        <div id="artist-list" class="artist-list"></div>
+      </section>
+
       <!-- 통계 -->
       <section id="page-stats" class="page">
         <div class="page-head"><h1>통계</h1></div>
@@ -104,6 +141,19 @@
       <!-- 설정 -->
       <section id="page-settings" class="page">
         <div class="page-head"><h1>백업 · 설정</h1></div>
+        <div class="panel">
+          <h2>계정</h2>
+          <div id="settings-account" class="settings-account"></div>
+        </div>
+        <div class="panel">
+          <h2>화면 모드</h2>
+          <p class="muted" id="device-info"></p>
+          <div class="choice" id="view-pref" role="radiogroup" aria-label="화면 모드">
+            <button data-pref="auto" role="radio">자동</button>
+            <button data-pref="pc" role="radio">PC 버전</button>
+            <button data-pref="mobile" role="radio">모바일 버전</button>
+          </div>
+        </div>
         <div class="panel">
           <h2>저장 위치</h2>
           <p class="muted" id="settings-storage"></p>
@@ -267,13 +317,13 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-  <script src="js/firebase-config.js?v=6"></script>
-  <script src="js/dialog.js?v=6"></script>
-  <script src="js/db.js?v=6"></script>
-  <script src="js/util.js?v=6"></script>
-  <script src="js/lookup.js?v=6"></script>
-  <script src="js/scanner.js?v=6"></script>
-  <script src="js/cloud.js?v=6"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/firebase-config.js?v=7"></script>
+  <script src="js/dialog.js?v=7"></script>
+  <script src="js/db.js?v=7"></script>
+  <script src="js/util.js?v=7"></script>
+  <script src="js/lookup.js?v=7"></script>
+  <script src="js/scanner.js?v=7"></script>
+  <script src="js/cloud.js?v=7"></script>
+  <script src="js/app.js?v=7"></script>
 </body>
 </html>

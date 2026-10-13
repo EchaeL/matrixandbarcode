@@ -138,7 +138,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
 .grid .album .cover { width: 100%; aspect-ratio: 1; border-radius: 4px; transition: transform .15s, box-shadow .15s; box-shadow: 0 1px 3px rgba(18,64,95,.08); }
 .grid .album:hover .cover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(18,64,95,.12); }
 .grid .info { padding-top: 10px; }
-.grid .codes { display: none; }
+.grid .album .codes { display: none; }
 
 .list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .list .album { display: flex; gap: 16px; align-items: center; padding: 12px 6px; border-bottom: 1px solid var(--line); }
@@ -393,3 +393,150 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
 .account .link-btn { align-self: flex-start; }
 .empty-login { margin: 18px 0 0 !important; font-size: .86rem; color: var(--muted); }
 .empty-login .link-btn { color: var(--sky-700); font-size: inherit; }
+
+/* ---------- 기록 (아티스트별) ---------- */
+.artist-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 8px 20px; }
+.artist-row {
+  display: grid; grid-template-columns: 52px 1fr; grid-template-rows: auto auto; column-gap: 14px; align-items: center;
+  padding: 10px; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left;
+  font: inherit; color: inherit; cursor: pointer; border-radius: 8px;
+}
+.artist-row:hover { background: var(--sky-50); }
+.artist-row .cover { grid-row: 1 / 3; width: 52px; height: 52px; border-radius: 3px; }
+.artist-row .cover.placeholder { padding: 4px; font-size: .5rem; }
+.artist-name { font-weight: 600; font-size: 1rem; align-self: end; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artist-count { font-size: .8rem; color: var(--muted); align-self: start; }
+
+/* ---------- 설정: 계정 · 화면 모드 ---------- */
+.settings-account { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.settings-account p { margin: 0; flex: 1 1 260px; }
+.settings-account .account-user b { font-size: .95rem; }
+.choice { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.choice button { border: 0; background: var(--white); color: var(--ink-2); font: inherit; font-size: .88rem; padding: 8px 16px; cursor: pointer; }
+.choice button + button { border-left: 1px solid var(--line); }
+.choice button.active { background: var(--sky-200); color: var(--sky-900); font-weight: 600; }
+
+/* ---------- PC / 모바일 공용 ---------- */
+.mobile-only, .tabbar { display: none !important; }
+.mb-account { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; color: var(--ink-2); }
+.mb-account img, .mb-account .avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; }
+.mb-account .avatar { display: flex; align-items: center; justify-content: center; background: var(--sky-200); color: var(--sky-900); font-weight: 600; font-size: .85rem; }
+
+/* ==========================================================
+   모바일 버전 (휴대폰) — js/device.js 가 <html data-view="mobile"> 설정
+   ========================================================== */
+html[data-view=mobile] .mobile-only { display: flex !important; }
+html[data-view=mobile] .pc-only,
+html[data-view=mobile] #btn-menu,
+html[data-view=mobile] .sidebar,
+html[data-view=mobile] .scrim { display: none !important; }
+
+html[data-view=mobile] body { font-size: 15px; }
+html[data-view=mobile] .layout { display: block; min-height: 0; }
+
+/* 상단바 */
+html[data-view=mobile] .mobilebar {
+  position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top));
+  background: rgba(255,255,255,.95); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+
+/* 하단 탭바 */
+html[data-view=mobile] .tabbar {
+  display: flex !important; position: fixed; z-index: 30; left: 0; right: 0; bottom: 0;
+  justify-content: space-around; align-items: center;
+  padding: 6px 6px max(8px, env(safe-area-inset-bottom));
+  background: rgba(255,255,255,.97); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border-top: 1px solid var(--line);
+}
+.tabbar a {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 4px 0; text-decoration: none; color: var(--muted); font-size: .68rem;
+}
+.tabbar svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.tabbar a[data-tab=artists] svg { fill: currentColor; stroke: none; }
+.tabbar a.active { color: var(--sky-900); font-weight: 600; }
+.tabbar a.active svg { stroke-width: 1.9; }
+.tab-add {
+  flex: none; width: 48px; height: 48px; margin: -2px 6px 0; border-radius: 50%;
+  border: 1px solid var(--sky-300); background: var(--sky-200); color: var(--sky-900);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(39,108,158,.18);
+}
+.tab-add svg { width: 24px; height: 24px; stroke-width: 2; }
+
+/* 본문 */
+html[data-view=mobile] main { padding: 18px 16px calc(96px + env(safe-area-inset-bottom)); }
+html[data-view=mobile] .page-head { margin-bottom: 12px; }
+html[data-view=mobile] .page-head h1 { font-size: 1.4rem; }
+
+html[data-view=mobile] .status-chips {
+  display: flex !important; gap: 6px; overflow-x: auto; margin: 0 -16px 12px; padding: 0 16px 2px; scrollbar-width: none;
+}
+html[data-view=mobile] .status-chips::-webkit-scrollbar { display: none; }
+.status-chips button {
+  flex: none; border: 1px solid var(--line); background: var(--white); color: var(--ink-2);
+  font: inherit; font-size: .84rem; padding: 6px 14px; border-radius: 99px; cursor: pointer;
+}
+.status-chips button.active { background: var(--sky-200); border-color: var(--sky-300); color: var(--sky-900); font-weight: 600; }
+
+html[data-view=mobile] .toolbar { flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+html[data-view=mobile] .toolbar input[type=search] { flex: 1 1 100%; max-width: none; }
+html[data-view=mobile] .toolbar select { flex: 1; }
+html[data-view=mobile] .seg { margin-left: 0; }
+html[data-view=mobile] input, html[data-view=mobile] select, html[data-view=mobile] textarea { font-size: 16px; } /* iOS 확대 방지 */
+
+/* 앨범 목록: 2열 */
+html[data-view=mobile] .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 14px; }
+html[data-view=mobile] .grid .album:hover .cover { transform: none; }
+html[data-view=mobile] .album .title { font-size: .92rem; }
+html[data-view=mobile] .album .artist { font-size: .82rem; }
+html[data-view=mobile] .list .album { padding: 10px 2px; }
+html[data-view=mobile] .list .cover { width: 54px; height: 54px; }
+html[data-view=mobile] .empty { padding: 56px 20px; }
+
+/* 앨범 상세 */
+html[data-view=mobile] .back { margin-bottom: 14px; }
+html[data-view=mobile] .album-hero { grid-template-columns: 1fr; gap: 18px; }
+html[data-view=mobile] .album-hero .cover { width: 100%; max-width: none; height: auto; aspect-ratio: 1; }
+html[data-view=mobile] .album-hero h1 { font-size: 1.45rem; }
+html[data-view=mobile] .kv { gap: 6px 16px; font-size: .9rem; }
+html[data-view=mobile] .hero-actions { display: grid; grid-template-columns: 1fr 1fr; }
+html[data-view=mobile] .hero-actions .btn.primary { grid-column: 1 / -1; padding: 11px; }
+html[data-view=mobile] .section { margin-top: 36px; }
+html[data-view=mobile] .discs { grid-template-columns: 1fr; gap: 12px; }
+html[data-view=mobile] .disc-card { padding: 16px; }
+html[data-view=mobile] .disc-add { min-height: 76px; flex-direction: row; gap: 8px; }
+html[data-view=mobile] .disc-add b { font-size: 1.2rem; }
+
+/* 기록 · 통계 · 설정 */
+html[data-view=mobile] .artist-list { grid-template-columns: 1fr; gap: 0; }
+html[data-view=mobile] .artist-row { padding: 10px 0; border-radius: 0; }
+html[data-view=mobile] .stat-tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
+html[data-view=mobile] .tile { padding: 14px; }
+html[data-view=mobile] .tile b { font-size: 1.3rem; }
+html[data-view=mobile] .stat-grid { grid-template-columns: 1fr; }
+html[data-view=mobile] .bar-row { grid-template-columns: 96px 1fr 28px; }
+html[data-view=mobile] .panel { padding: 18px; }
+html[data-view=mobile] .choice { display: flex; }
+html[data-view=mobile] .choice button { flex: 1; padding: 9px 6px; }
+
+/* 팝업: 전체 화면 */
+html[data-view=mobile] .dialog, html[data-view=mobile] .dialog.wide {
+  width: 100vw; max-width: 100vw; height: 100vh; height: 100dvh; max-height: none; border-radius: 0; margin: 0;
+}
+html[data-view=mobile] .dlg-head { padding: max(14px, env(safe-area-inset-top)) 16px 12px; }
+html[data-view=mobile] .dlg-body { padding: 16px; }
+html[data-view=mobile] .dlg-foot { padding: 12px 16px max(12px, env(safe-area-inset-bottom)); }
+html[data-view=mobile] .dlg-foot .btn { flex: 1; padding: 11px; }
+html[data-view=mobile] .dlg-foot .spacer { display: none; }
+html[data-view=mobile] .form-grid { grid-template-columns: 1fr; }
+html[data-view=mobile] .cover-field { width: 170px; margin: 0 auto; }
+html[data-view=mobile] .fields, html[data-view=mobile] .fields.cols3 { grid-template-columns: 1fr 1fr; }
+html[data-view=mobile] .input-row { flex-wrap: wrap; }
+html[data-view=mobile] .input-row input { flex-basis: 100%; }
+html[data-view=mobile] .input-row .btn { flex: 1; }
+html[data-view=mobile] .disc-grid { grid-template-columns: 1fr 1fr; }
+html[data-view=mobile] .disc-grid .sids { grid-template-columns: 1fr; }
+html[data-view=mobile] .toast { bottom: calc(84px + env(safe-area-inset-bottom)); }

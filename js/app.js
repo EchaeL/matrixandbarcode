@@ -84,26 +84,72 @@
     toast('로그아웃했습니다');
   }
 
+  function avatarHTML() {
+    const name = user.displayName || user.email || '내 계정';
+    return user.photoURL
+      ? `<img src="${esc(user.photoURL)}" alt="" referrerpolicy="no-referrer">`
+      : `<span class="avatar">${esc(name.slice(0, 1))}</span>`;
+  }
+
   function renderAccount() {
-    const box = $('#account');
+    const name = user ? (user.displayName || user.email || '내 계정') : '';
+    let side, settings;
     if (!Cloud.available) {
-      box.innerHTML = '<p class="account-note">서버에 연결할 수 없어 이 기기에만 저장합니다.</p>';
+      side = settings = '<p class="account-note">서버에 연결할 수 없어 이 기기에만 저장합니다.</p>';
     } else if (!user) {
-      box.innerHTML = `
+      side = `
         <p class="account-note">지금은 이 기기에만 저장돼요.<br>로그인하면 어느 기기에서나 볼 수 있어요.</p>
         <button class="btn block" data-action="signin">${GOOGLE_ICON}Google로 로그인</button>`;
+      settings = `
+        <p class="muted">지금은 이 기기에만 저장돼요. 로그인하면 어느 기기에서나 같은 컬렉션을 볼 수 있어요.</p>
+        <button class="btn" data-action="signin">${GOOGLE_ICON}Google로 로그인</button>`;
     } else {
-      const name = user.displayName || user.email || '내 계정';
-      box.innerHTML = `
-        <div class="account-user">
-          ${user.photoURL ? `<img src="${esc(user.photoURL)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc(name.slice(0, 1))}</span>`}
-          <div><b>${esc(name)}</b><span>계정에 자동 저장 중</span></div>
-        </div>
-        <button class="link-btn" data-action="signout">로그아웃</button>`;
+      const row = `<div class="account-user">${avatarHTML()}<div><b>${esc(name)}</b><span>계정에 자동 저장 중</span></div></div>`;
+      side = row + '<button class="link-btn" data-action="signout">로그아웃</button>';
+      settings = row + '<button class="btn" data-action="signout">로그아웃</button>';
     }
+    $('#account').innerHTML = side;
+    $('#settings-account').innerHTML = settings;
+    $('#mb-account').innerHTML = user ? avatarHTML()
+      : '<svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="9" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 20c1.2-3.5 4-5 7-5s5.8 1.5 7 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
     $('#settings-storage').textContent = user
       ? `${user.email || '구글 계정'}에 자동으로 저장되고 있어요. 다른 기기에서 같은 계정으로 로그인하면 똑같이 보입니다.`
-      : '지금은 이 기기의 브라우저에만 저장됩니다. 왼쪽 아래에서 Google로 로그인하면 계정에 저장되어 어느 기기에서나 볼 수 있어요.';
+      : '지금은 이 기기의 브라우저에만 저장됩니다. Google로 로그인하면 계정에 저장되어 어느 기기에서나 볼 수 있어요.';
+  }
+
+  // 설정의 "화면 모드": 감지된 기기 정보와 현재 선택
+  function renderViewPref() {
+    const i = Device.info();
+    const kind = { phone: '휴대폰', tablet: '태블릿', desktop: '컴퓨터' }[i.kind];
+    const auto = Device.pref() === 'auto';
+    $('#device-info').textContent =
+      `이 기기: ${i.name} (${kind}) · 화면 ${i.screen} · 지금 ${Device.view() === 'mobile' ? '모바일' : 'PC'} 버전으로 보는 중` +
+      (auto ? '' : ' (직접 선택함)');
+    $$('#view-pref button').forEach(b => {
+      const on = b.dataset.pref === Device.pref();
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', on);
+    });
+  }
+
+  // 기록(아티스트별) 페이지
+  function renderArtists() {
+    const groups = new Map();
+    albums.forEach(a => {
+      if (!groups.has(a.artist)) groups.set(a.artist, []);
+      groups.get(a.artist).push(a);
+    });
+    const list = [...groups.entries()].sort((x, y) => x[0].localeCompare(y[0], 'ko'));
+    $('#artist-list').innerHTML = list.length ? list.map(([name, items]) => {
+      const withCover = items.find(a => a.cover) || items[0];
+      const discs = items.reduce((n, a) => n + a.discs.length, 0);
+      return `
+        <button class="artist-row" data-artist="${esc(name)}">
+          ${coverHTML(withCover)}
+          <span class="artist-name">${esc(name)}</span>
+          <span class="artist-count">앨범 ${items.length} · 디스크 ${discs}</span>
+        </button>`;
+    }).join('') : '<p class="muted no-result">아직 등록된 앨범이 없습니다.</p>';
   }
 
   const GOOGLE_ICON = '<svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.2l7.9 6.2C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.2 5.6c4.2-3.9 7.1-9.6 7.1-17z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.7 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.2-5.6c-2 1.4-4.8 2.3-8.7 2.3-6.2 0-11.5-4.1-13.4-9.8l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>';
@@ -169,11 +215,14 @@
     if (page === 'album' && id) active = 'album';
     else if (page === 'stats') active = 'stats';
     else if (page === 'settings') active = 'settings';
+    else if (page === 'artists') active = 'artists';
 
     $$('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + active));
     if (active === 'album') renderAlbumPage(decodeURIComponent(id));
     if (active === 'list') renderList();
     if (active === 'stats') renderStats();
+    if (active === 'artists') renderArtists();
+    if (active === 'settings') renderViewPref();
     updateNavActive(active);
     if (scrollTop) {
       document.body.classList.remove('nav-open');
@@ -219,12 +268,31 @@
         go('#/');
       }
     }));
-    $('#side-artists').addEventListener('click', e => {
+    ['#side-artists', '#artist-list'].forEach(sel => $(sel).addEventListener('click', e => {
       const b = e.target.closest('button[data-artist]');
       if (!b) return;
       filter = { status: 'all', artist: b.dataset.artist };
       $('#search').value = '';
       go('#/');
+    }));
+    $('#status-chips').addEventListener('click', e => {
+      const b = e.target.closest('button[data-status]');
+      if (!b) return;
+      filter = { status: b.dataset.status, artist: null };
+      renderList();
+      updateNavActive('list');
+    });
+
+    // 화면 모드 (자동 / PC / 모바일)
+    $('#view-pref').addEventListener('click', e => {
+      const b = e.target.closest('button[data-pref]');
+      if (!b) return;
+      Device.setPref(b.dataset.pref);
+      renderViewPref();
+    });
+    window.addEventListener('viewchange', () => {
+      document.body.classList.remove('nav-open');
+      if ($('#page-settings').classList.contains('active')) renderViewPref();
     });
 
     // 목록
@@ -308,6 +376,10 @@
       a.classList.toggle('active', on);
     });
     $$('#side-artists button').forEach(b => b.classList.toggle('active', page === 'list' && b.dataset.artist === filter.artist));
+    $$('#status-chips button').forEach(b => b.classList.toggle('active', !filter.artist && b.dataset.status === filter.status));
+    // 하단 탭바: 앨범 상세는 컬렉션 탭, 아티스트로 거른 목록은 기록 탭
+    const tab = page === 'album' ? 'list' : page === 'list' && filter.artist ? 'artists' : page;
+    $$('.tabbar [data-tab]').forEach(a => a.classList.toggle('active', a.dataset.tab === tab));
   }
 
   function renderDatalists() {
