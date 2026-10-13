@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Matrix &amp; Barcode — CD 컬렉션</title>
+  <meta name="description" content="보유한 CD 앨범을 바코드·매트릭스 번호와 함께 등록하고 관리하는 컬렉션 사이트">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23222'/%3E%3Ccircle cx='32' cy='32' r='22' fill='%23999'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="disc" aria-hidden="true"></span>
+      <div>
+        <h1>Matrix &amp; Barcode</h1>
+        <p class="sub">나의 CD 컬렉션</p>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-view="collection" role="tab">컬렉션</button>
+      <button class="tab" data-view="stats" role="tab">통계</button>
+      <button class="tab" data-view="settings" role="tab">백업/설정</button>
+    </nav>
+    <button id="btn-add" class="btn primary">＋ 앨범 등록</button>
+  </header>
+
+  <main>
+    <!-- 컬렉션 -->
+    <section id="view-collection" class="view active">
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="제목, 아티스트, 바코드, 매트릭스, 카탈로그 번호 검색…" autocomplete="off">
+        <select id="filter-format" title="포맷"><option value="">모든 포맷</option></select>
+        <select id="filter-status" title="상태">
+          <option value="">전체</option>
+          <option value="owned">보유</option>
+          <option value="wishlist">위시리스트</option>
+          <option value="sold">처분함</option>
+        </select>
+        <select id="sort" title="정렬">
+          <option value="added-desc">최근 등록순</option>
+          <option value="artist-asc">아티스트 (가나다)</option>
+          <option value="title-asc">제목 (가나다)</option>
+          <option value="year-desc">발매년도 (최신)</option>
+          <option value="year-asc">발매년도 (오래된)</option>
+          <option value="rating-desc">평점 높은순</option>
+        </select>
+        <div class="seg" role="group" aria-label="보기 방식">
+          <button id="view-grid" class="active" title="그리드">▦</button>
+          <button id="view-list" title="리스트">☰</button>
+        </div>
+      </div>
+      <p id="result-count" class="muted"></p>
+      <div id="album-container" class="grid"></div>
+      <div id="empty" class="empty hidden">
+        <div class="disc big" aria-hidden="true"></div>
+        <h2>아직 등록된 앨범이 없습니다</h2>
+        <p>바코드를 스캔하거나 직접 입력해서 첫 CD를 등록해 보세요.</p>
+        <button class="btn primary" data-action="add">＋ 첫 앨범 등록</button>
+      </div>
+    </section>
+
+    <!-- 통계 -->
+    <section id="view-stats" class="view">
+      <div id="stats"></div>
+    </section>
+
+    <!-- 설정 -->
+    <section id="view-settings" class="view">
+      <div class="card">
+        <h2>백업 및 복원</h2>
+        <p class="muted">데이터는 이 브라우저(IndexedDB)에 저장됩니다. 기기를 바꾸거나 브라우저 데이터를 지우기 전에 꼭 백업하세요.</p>
+        <div class="row-buttons">
+          <button id="btn-export-json" class="btn">JSON 백업 내보내기</button>
+          <button id="btn-export-csv" class="btn">CSV 내보내기 (엑셀용)</button>
+          <label class="btn">JSON 백업 불러오기<input id="import-json" type="file" accept="application/json,.json" hidden></label>
+        </div>
+      </div>
+      <div class="card danger-zone">
+        <h2>초기화</h2>
+        <p class="muted">모든 앨범 데이터를 삭제합니다. 되돌릴 수 없습니다.</p>
+        <button id="btn-clear" class="btn danger">전체 삭제</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- 등록/수정 폼 -->
+  <dialog id="dlg-edit" class="dialog wide">
+    <form id="album-form" method="dialog" novalidate>
+      <header class="dlg-head">
+        <h2 id="form-title">앨범 등록</h2>
+        <button type="button" class="icon-btn" data-close aria-label="닫기">✕</button>
+      </header>
+
+      <div class="lookup-box">
+        <label for="f-barcode">바코드 (UPC/EAN)</label>
+        <div class="input-row">
+          <input id="f-barcode" name="barcode" inputmode="numeric" placeholder="예: 8809269506094">
+          <button type="button" id="btn-scan" class="btn">📷 스캔</button>
+          <button type="button" id="btn-lookup" class="btn">🔎 정보 찾기</button>
+        </div>
+        <p id="barcode-hint" class="hint"></p>
+        <div id="lookup-results" class="lookup-results"></div>
+      </div>
+
+      <div class="form-grid">
+        <div class="cover-field">
+          <div id="cover-preview" class="cover-preview"><span>커버 없음</span></div>
+          <label class="btn small">이미지 선택<input id="f-cover-file" type="file" accept="image/*" hidden></label>
+          <button type="button" id="btn-cover-clear" class="btn small ghost">커버 제거</button>
+        </div>
+
+        <div class="fields">
+          <label class="span2">제목 *<input name="title" required></label>
+          <label class="span2">아티스트 *<input name="artist" required list="dl-artists"></label>
+          <label>레이블<input name="label" list="dl-labels"></label>
+          <label>카탈로그 번호<input name="catalogNo" placeholder="예: SMK-1234"></label>
+          <label>발매년도<input name="year" type="number" min="1980" max="2100" inputmode="numeric"></label>
+          <label>발매국가<input name="country" placeholder="예: KR, JP, US"></label>
+          <label>포맷
+            <select name="format">
+              <option>CD</option><option>2CD</option><option>CD+DVD</option><option>CD+Blu-ray</option>
+              <option>SACD</option><option>Hybrid SACD</option><option>SHM-CD</option><option>Blu-spec CD</option>
+              <option>HQCD</option><option>CD-R</option><option>CD Single</option><option>기타</option>
+            </select>
+          </label>
+          <label>디스크 수<input name="discs" type="number" min="1" value="1"></label>
+          <label class="span2">에디션 / 판본<input name="edition" placeholder="예: 초판, 한정반, 리마스터, 일본반 OBI 포함"></label>
+        </div>
+      </div>
+
+      <fieldset>
+        <legend>매트릭스 / 런아웃 (디스크 안쪽 각인)</legend>
+        <p class="hint">디스크 투명 링 부분에 새겨진 번호입니다. 같은 바코드라도 프레싱(공장·차수)을 구분할 수 있어요. 디스크가 여러 장이면 각각 추가하세요.</p>
+        <div id="matrix-list"></div>
+        <button type="button" id="btn-add-matrix" class="btn small">＋ 매트릭스 추가</button>
+      </fieldset>
+
+      <fieldset>
+        <legend>보관 및 상태</legend>
+        <div class="fields cols3">
+          <label>보유 상태
+            <select name="status">
+              <option value="owned">보유</option>
+              <option value="wishlist">위시리스트</option>
+              <option value="sold">처분함</option>
+            </select>
+          </label>
+          <label>디스크 상태
+            <select name="mediaCondition">
+              <option value="">-</option><option>M (미개봉)</option><option>NM</option><option>VG+</option><option>VG</option><option>G</option><option>P</option>
+            </select>
+          </label>
+          <label>케이스/부클릿 상태
+            <select name="sleeveCondition">
+              <option value="">-</option><option>M (미개봉)</option><option>NM</option><option>VG+</option><option>VG</option><option>G</option><option>P</option>
+            </select>
+          </label>
+          <label>보관 위치<input name="location" placeholder="예: 거실 선반 A-3" list="dl-locations"></label>
+          <label>구입일<input name="purchaseDate" type="date"></label>
+          <label>구입처<input name="purchasePlace" list="dl-places"></label>
+          <label>구입가 (원)<input name="price" type="number" min="0" step="100" inputmode="numeric"></label>
+          <label>평점
+            <select name="rating">
+              <option value="0">-</option><option value="1">★</option><option value="2">★★</option><option value="3">★★★</option><option value="4">★★★★</option><option value="5">★★★★★</option>
+            </select>
+          </label>
+          <label>태그<input name="tags" placeholder="쉼표로 구분: 재즈, 사인반"></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>트랙리스트 · 메모</legend>
+        <div class="fields">
+          <label class="span2">트랙리스트 (한 줄에 한 곡)<textarea name="tracklist" rows="5"></textarea></label>
+          <label class="span2">메모<textarea name="notes" rows="3" placeholder="특이사항, 사인 여부, 특전 등"></textarea></label>
+        </div>
+      </fieldset>
+
+      <input type="hidden" name="musicbrainzId">
+      <footer class="dlg-foot">
+        <button type="button" id="btn-delete" class="btn danger hidden">삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" data-close>취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 상세 보기 -->
+  <dialog id="dlg-detail" class="dialog wide">
+    <div id="detail-body"></div>
+  </dialog>
+
+  <!-- 스캐너 -->
+  <dialog id="dlg-scan" class="dialog">
+    <header class="dlg-head">
+      <h2>바코드 스캔</h2>
+      <button type="button" class="icon-btn" data-close aria-label="닫기">✕</button>
+    </header>
+    <div class="scan-area">
+      <video id="scan-video" playsinline muted></video>
+      <div class="scan-line"></div>
+    </div>
+    <p id="scan-status" class="hint">카메라를 바코드에 맞춰 주세요.</p>
+  </dialog>
+
+  <datalist id="dl-artists"></datalist>
+  <datalist id="dl-labels"></datalist>
+  <datalist id="dl-locations"></datalist>
+  <datalist id="dl-places"></datalist>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/db.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/lookup.js"></script>
+  <script src="js/scanner.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
