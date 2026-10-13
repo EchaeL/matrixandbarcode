@@ -113,6 +113,14 @@ input, select, textarea {
   background: var(--white); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px;
 }
 input.mono, textarea.mono { font-family: var(--mono); }
+/* iOS/iPadOS Safari의 날짜 입력칸은 고유 너비가 있어 칸 밖으로 튀어나가므로 강제로 맞춤 */
+input[type=date] {
+  -webkit-appearance: none; appearance: none;
+  display: block; min-width: 0; max-width: 100%; min-height: 40px; line-height: 1.4; text-align: left;
+}
+input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input[type=date]::-webkit-calendar-picker-indicator { opacity: .5; }
+input, select { min-height: 40px; }
 textarea { resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--sky-500); box-shadow: 0 0 0 3px var(--sky-100); }
 .btn:focus-visible, .album:focus-visible, .side-nav a:focus-visible { outline: 2px solid var(--sky-500); outline-offset: 2px; }
@@ -274,7 +282,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
 
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
 .fields.cols3 { grid-template-columns: repeat(3, 1fr); }
-.fields label, .disc-editor label { display: flex; flex-direction: column; gap: 4px; font-size: .8rem; color: var(--ink-2); }
+.fields label, .disc-editor label { display: flex; flex-direction: column; gap: 4px; font-size: .8rem; color: var(--ink-2); min-width: 0; }
+.fields > *, .disc-grid > *, .form-grid > * { min-width: 0; }
 .fields .span2 { grid-column: span 2; }
 .fields .span3 { grid-column: 1 / -1; }
 .form-section { margin-top: 30px; }
