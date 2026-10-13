@@ -110,6 +110,16 @@
       if (closer) closer.closest('dialog').close();
     });
 
+    // 팝업 바깥(어두운 배경)을 누르면 닫기. 앨범 폼에 입력 중이면 한 번 확인
+    $$('dialog').forEach(d => d.addEventListener('click', e => {
+      if (e.target !== d) return;
+      const r = d.getBoundingClientRect();
+      const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (inside) return;
+      if (d.id === 'dlg-album' && $('#album-form').elements.title.value.trim() && !confirm('입력 중인 내용을 닫을까요?')) return;
+      d.close();
+    }));
+
     // 사이드바
     $('#btn-menu').addEventListener('click', () => document.body.classList.toggle('nav-open'));
     $('#scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
@@ -465,7 +475,7 @@
     setCover(a.cover || null);
     updateBarcodeHint();
     $('#dlg-album').showModal();
-    $('.dlg-body', form).scrollTop = 0;
+    $('#dlg-album').scrollTop = 0;
   }
 
   // 발매일 없이 연도만 알고 있을 때 안내 (날짜를 고르면 사라짐)
