@@ -16,6 +16,13 @@
 
   // ---------- 초기화 ----------
   async function init() {
+    // 저장소가 늦거나 실패해도 버튼은 동작하도록 이벤트를 먼저 연결
+    if (prefs.sort) $('#sort').value = prefs.sort;
+    setLayout(prefs.layout || 'grid', false);
+    bindEvents();
+    renderShell();
+    route();
+
     const stored = await DB.all();
     const migrated = [];
     albums = stored.map(a => {
@@ -24,12 +31,22 @@
       return n;
     });
     if (migrated.length) await DB.putMany(migrated);
-
-    if (prefs.sort) $('#sort').value = prefs.sort;
-    setLayout(prefs.layout || 'grid', false);
-    bindEvents();
     renderShell();
     route();
+  }
+
+  // 정렬·통계용 발매 연도 (전체 날짜가 있으면 그 연도)
+  function yearOf(a) {
+    return a.releaseDate ? parseInt(a.releaseDate.slice(0, 4), 10) || 0 : Number(a.year) || 0;
+  }
+
+  // 발매일 표시: 2019-10-29 → 2019. 10. 29.
+  function releaseText(a) {
+    if (a.releaseDate) {
+      const [y, m, d] = a.releaseDate.split('-');
+      return `${y}. ${Number(m)}. ${Number(d)}.`;
+    }
+    return a.year ? String(a.year) : '';
   }
 
   // 이전 버전(앨범 단위 매트릭스) 데이터를 앨범 → CD 구조로 변환
@@ -141,6 +158,7 @@
       try { setCover(await Util.resizeImage(file)); } catch (err) { toast(err.message); }
     });
     $('#btn-cover-clear').addEventListener('click', () => setCover(null));
+    $('#album-form').elements.releaseDate.addEventListener('change', updateYearOnly);
     $('#dlg-scan').addEventListener('close', () => Scanner.stop($('#scan-video')));
 
     // CD 폼
@@ -250,10 +268,10 @@
     const cmp = (x, y) => String(x || '').localeCompare(String(y || ''), 'ko');
     const sorters = {
       'added-desc': (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
-      'artist-asc': (a, b) => cmp(a.artist, b.artist) || (a.year || 0) - (b.year || 0) || cmp(a.title, b.title),
+      'artist-asc': (a, b) => cmp(a.artist, b.artist) || cmp(a.releaseDate || a.year, b.releaseDate || b.year) || cmp(a.title, b.title),
       'title-asc': (a, b) => cmp(a.title, b.title),
-      'year-desc': (a, b) => (b.year || 0) - (a.year || 0),
-      'year-asc': (a, b) => (a.year || 9999) - (b.year || 9999),
+      'year-desc': (a, b) => cmp(b.releaseDate || String(b.year || ''), a.releaseDate || String(a.year || '')),
+      'year-asc': (a, b) => cmp(a.releaseDate || String(a.year || '9999'), b.releaseDate || String(b.year || '9999')),
       'rating-desc': (a, b) => (b.rating || 0) - (a.rating || 0),
     };
     return list.sort(sorters[$('#sort').value] || sorters['added-desc']);
@@ -277,7 +295,7 @@
     }
     container.innerHTML = list.map(a => {
       const status = a.status && a.status !== 'owned' ? `<span class="badge ${a.status}">${STATUS_LABEL[a.status]}</span>` : '';
-      const meta = [a.year, discSummary(a.discs), a.label].filter(Boolean).map(esc).join(' · ');
+      const meta = [yearOf(a) || '', discSummary(a.discs), a.label].filter(Boolean).map(esc).join(' · ');
       const firstMatrix = (a.discs.find(d => d.matrix) || {}).matrix;
       return `
         <a class="album" href="#/album/${encodeURIComponent(a.id)}">
@@ -338,7 +356,7 @@
             ${row('바코드', a.barcode ? `<span class="mono">${esc(Util.formatBarcode(a.barcode))}</span>` : '')}
             ${row('카탈로그', a.catalogNo ? `<span class="mono">${esc(a.catalogNo)}</span>` : '')}
             ${row('레이블', esc(a.label))}
-            ${row('발매', esc([a.year, a.country].filter(Boolean).join(' · ')))}
+            ${row('발매', esc([releaseText(a), a.country].filter(Boolean).join(' · ')))}
             ${row('구성', esc(discSummary(a.discs)))}
             ${row('에디션', esc(a.edition))}
             ${row('상태', esc([STATUS_LABEL[a.status || 'owned'], a.mediaCondition && '디스크 ' + a.mediaCondition, a.sleeveCondition && '케이스 ' + a.sleeveCondition].filter(Boolean).join(' · ')))}
@@ -440,6 +458,7 @@
       if (v !== undefined && v !== null) el.value = v;
     }
     $('#f-barcode').value = Util.formatBarcode(a.barcode || '');
+    updateYearOnly();
     const discs = a.discs && a.discs.length ? a.discs : [{}];
     $('#form-discs').innerHTML = '';
     discs.forEach((d, i) => $('#form-discs').appendChild(discEditor(d, i + 1, true)));
@@ -447,6 +466,13 @@
     updateBarcodeHint();
     $('#dlg-album').showModal();
     $('.dlg-body', form).scrollTop = 0;
+  }
+
+  // 발매일 없이 연도만 알고 있을 때 안내 (날짜를 고르면 사라짐)
+  function updateYearOnly() {
+    const form = $('#album-form');
+    const year = form.elements.year.value;
+    $('#year-only').textContent = !form.elements.releaseDate.value && year ? `연도만 저장됨: ${year}` : '';
   }
 
   function setCover(dataUrl) {
@@ -515,7 +541,9 @@
     set('artist', r.artist);
     set('label', r.label);
     set('catalogNo', r.catalogNo);
-    set('year', r.year);
+    // MusicBrainz 날짜가 연도·연월만 있는 경우 날짜칸은 비우고 연도만 보관
+    if (/^\d{4}-\d{2}-\d{2}$/.test(r.date)) { set('releaseDate', r.date); form.elements.year.value = ''; }
+    else { form.elements.releaseDate.value = ''; set('year', r.year); }
     set('country', r.country);
     set('musicbrainzId', r.musicbrainzId);
     $('#lookup-results').innerHTML = '<p class="muted">수록 CD와 표지를 가져오는 중…</p>';
@@ -534,6 +562,7 @@
       });
     }
     if (blob) { try { setCover(await Util.resizeImage(blob)); } catch { /* 표지 없음 */ } }
+    updateYearOnly();
     $('#lookup-results').innerHTML = '<p class="muted">✓ 정보를 불러왔습니다. 매트릭스는 디스크를 보고 직접 입력해 주세요.</p>';
   }
 
@@ -555,7 +584,8 @@
       barcode: Util.normalizeBarcode(str('barcode')),
       label: str('label'),
       catalogNo: str('catalogNo'),
-      year: num('year'),
+      releaseDate: str('releaseDate'),
+      year: str('releaseDate') ? Number(str('releaseDate').slice(0, 4)) : num('year'),
       country: str('country').toUpperCase(),
       edition: str('edition'),
       discs: $$('#form-discs .disc-editor').map(readDiscEditor),
@@ -678,7 +708,7 @@
           <span class="bar"><span style="width:${(v / max) * 100}%"></span></span><span class="bar-val">${v}</span></div>`).join('')
         : '<p class="muted">데이터 없음</p>'}</div>`;
     };
-    const decades = countBy(owned, a => a.year ? Math.floor(a.year / 10) * 10 + '년대' : '')
+    const decades = countBy(owned, a => yearOf(a) ? Math.floor(yearOf(a) / 10) * 10 + '년대' : '')
       .sort((x, y) => parseInt(x[0]) - parseInt(y[0]));
 
     $('#stats').innerHTML = `
@@ -707,10 +737,10 @@
   }
 
   function exportCSV() {
-    const head = ['아티스트', '앨범', '바코드', '카탈로그번호', '레이블', '발매년도', '국가', '구성', '에디션',
+    const head = ['아티스트', '앨범', '바코드', '카탈로그번호', '레이블', '발매일', '국가', '구성', '에디션',
       '매트릭스', 'Mastering SID', 'Mould SID', '상태', '디스크상태', '케이스상태', '보관위치', '구입일', '구입처', '구입가', '평점', '태그', '메모'];
     const perDisc = (a, key) => a.discs.map((d, i) => d[key] ? `D${i + 1}: ${d[key]}` : '').filter(Boolean).join(' / ');
-    const rows = albums.map(a => [a.artist, a.title, a.barcode, a.catalogNo, a.label, a.year, a.country, discSummary(a.discs), a.edition,
+    const rows = albums.map(a => [a.artist, a.title, a.barcode, a.catalogNo, a.label, releaseText(a), a.country, discSummary(a.discs), a.edition,
       perDisc(a, 'matrix'), perDisc(a, 'mastering'), perDisc(a, 'mould'),
       STATUS_LABEL[a.status || 'owned'], a.mediaCondition, a.sleeveCondition, a.location, a.purchaseDate, a.purchasePlace,
       a.price, a.rating || '', (a.tags || []).join(', '), a.notes]);
@@ -761,6 +791,10 @@
 
   init().catch(err => {
     console.error(err);
-    $('#main').innerHTML = `<div class="panel"><h2>저장소를 열 수 없습니다</h2><p>${esc(err.message)}</p><p class="muted">사파리 개인정보 보호 브라우징에서는 저장이 제한될 수 있습니다.</p></div>`;
+    $('#page-list').insertAdjacentHTML('afterbegin', `<div class="panel"><h2>저장소를 열 수 없습니다</h2><p>${esc(err.message)}</p><p class="muted">사파리 개인정보 보호 브라우징에서는 저장이 제한될 수 있습니다.</p></div>`);
   });
+
+  // 예기치 못한 오류를 화면에 알려 원인을 파악할 수 있게 함
+  window.addEventListener('error', e => toast('오류: ' + (e.message || '알 수 없는 오류')));
+  window.addEventListener('unhandledrejection', e => toast('오류: ' + ((e.reason && e.reason.message) || e.reason)));
 })();

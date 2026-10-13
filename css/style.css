@@ -366,3 +366,9 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--s
   .disc-grid { grid-template-columns: 1fr 1fr; }
   .disc-grid .sids { grid-template-columns: 1fr; }
 }
+
+/* <dialog>를 지원하지 않는 구형 Safari용 대체 표시 (js/dialog.js) */
+.dialog.dialog-fallback[open] {
+  position: fixed; z-index: 1000; inset: 0; margin: auto; height: fit-content;
+  box-shadow: 0 0 0 100vmax rgba(18,40,60,.35), 0 24px 70px rgba(18,64,95,.22);
+}

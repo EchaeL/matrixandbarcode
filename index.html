@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body>
   <!-- 모바일 상단바 -->
@@ -42,7 +42,7 @@
         <a href="#/" data-nav="wishlist">위시리스트 <span class="count" id="cnt-wishlist"></span></a>
         <a href="#/" data-nav="sold">처분함 <span class="count" id="cnt-sold"></span></a>
 
-        <p class="side-label">아티스트</p>
+        <p class="side-label">기록</p>
         <div id="side-artists" class="side-artists"></div>
 
         <p class="side-label">관리</p>
@@ -156,11 +156,11 @@
           </div>
 
           <div class="fields">
-            <label class="span2">앨범 제목 <em>*</em><input name="title" required></label>
-            <label class="span2">아티스트 <em>*</em><input name="artist" required list="dl-artists"></label>
+            <label class="span2"><span>앨범 제목 <em>*</em></span><input name="title" required></label>
+            <label class="span2"><span>아티스트 <em>*</em></span><input name="artist" required list="dl-artists"></label>
             <label>레이블<input name="label" list="dl-labels"></label>
             <label>카탈로그 번호<input name="catalogNo" class="mono"></label>
-            <label>발매년도<input name="year" type="number" min="1980" max="2100" inputmode="numeric"></label>
+            <label>발매일<input name="releaseDate" type="date" min="1980-01-01" max="2100-12-31"><span id="year-only" class="hint"></span></label>
             <label>발매국가<input name="country" placeholder="KR, JP, US…"></label>
             <label class="span2">에디션 · 판본<input name="edition" placeholder="초판, 한정반, 리마스터 등"></label>
           </div>
@@ -209,6 +209,7 @@
           </div>
         </section>
         <input type="hidden" name="musicbrainzId">
+        <input type="hidden" name="year">
       </div>
 
       <footer class="dlg-foot">
@@ -256,10 +257,12 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/db.js"></script>
-  <script src="js/util.js"></script>
-  <script src="js/lookup.js"></script>
-  <script src="js/scanner.js"></script>
-  <script src="js/app.js"></script>
+  <!-- ?v= 값은 배포할 때마다 올려서 Safari가 예전 파일을 캐시해 쓰지 않도록 함 -->
+  <script src="js/dialog.js?v=4"></script>
+  <script src="js/db.js?v=4"></script>
+  <script src="js/util.js?v=4"></script>
+  <script src="js/lookup.js?v=4"></script>
+  <script src="js/scanner.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
 </body>
 </html>
