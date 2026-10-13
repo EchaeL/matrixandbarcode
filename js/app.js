@@ -3,20 +3,55 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
-  const STATUS_LABEL = { owned: '보유', wishlist: '위시리스트', sold: '처분함' };
+  const STATUS_LABEL = { owned: '보유 중', wishlist: '위시리스트', sold: '처분함' };
+  const DISC_TYPES = ['CD', 'SACD', 'Hybrid SACD', 'SHM-CD', 'Blu-spec CD', 'HQCD', 'CD-R', 'DVD', 'Blu-ray', '기타'];
   const PREF_KEY = 'mab-prefs';
 
   let albums = [];
-  let editingId = null;
-  let formCover = null; // data URL
+  let filter = { status: 'all', artist: null };
+  let editingAlbumId = null;   // 앨범 폼에서 수정 중인 앨범
+  let formCover = null;        // 앨범 폼의 표지 data URL
+  let discTarget = null;       // { albumId, discId } — CD 폼 대상
   let prefs = loadPrefs();
 
   // ---------- 초기화 ----------
   async function init() {
-    albums = await DB.all();
-    applyPrefs();
+    const stored = await DB.all();
+    const migrated = [];
+    albums = stored.map(a => {
+      const n = normalize(a);
+      if (n !== a) migrated.push(n);
+      return n;
+    });
+    if (migrated.length) await DB.putMany(migrated);
+
+    if (prefs.sort) $('#sort').value = prefs.sort;
+    setLayout(prefs.layout || 'grid', false);
     bindEvents();
-    render();
+    renderShell();
+    route();
+  }
+
+  // 이전 버전(앨범 단위 매트릭스) 데이터를 앨범 → CD 구조로 변환
+  function normalize(a) {
+    if (Array.isArray(a.discs)) return a;
+    const matrix = a.matrix || [];
+    const count = Math.max(Number(a.discs) || 1, matrix.length, 1);
+    const fmt = a.format || 'CD';
+    const discs = [];
+    for (let i = 0; i < count; i++) {
+      const m = matrix[i] || {};
+      let type = DISC_TYPES.includes(fmt) ? fmt : 'CD';
+      if (/DVD/.test(fmt) && i > 0) type = 'DVD';
+      if (/Blu-ray/.test(fmt) && i > 0) type = 'Blu-ray';
+      discs.push({
+        id: uid(), type, title: '',
+        matrix: m.code || '', mastering: m.mastering || '', mould: m.mould || '',
+        tracklist: i === 0 ? (a.tracklist || '') : '', notes: '',
+      });
+    }
+    const { matrix: _m, format: _f, tracklist: _t, ...rest } = a;
+    return { ...rest, discs };
   }
 
   function loadPrefs() {
@@ -25,70 +60,97 @@
   function savePrefs() {
     try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch { /* 무시 */ }
   }
-  function applyPrefs() {
-    if (prefs.sort) $('#sort').value = prefs.sort;
-    setLayout(prefs.layout || 'grid', false);
+
+  // ---------- 라우팅 ----------
+  function route() {
+    const hash = location.hash.replace(/^#/, '') || '/';
+    const [, page, id] = hash.split('/');
+    let active = 'list';
+    if (page === 'album' && id) active = 'album';
+    else if (page === 'stats') active = 'stats';
+    else if (page === 'settings') active = 'settings';
+
+    $$('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + active));
+    if (active === 'album') renderAlbumPage(decodeURIComponent(id));
+    if (active === 'list') renderList();
+    if (active === 'stats') renderStats();
+    updateNavActive(active);
+    document.body.classList.remove('nav-open');
+    window.scrollTo(0, 0);
+  }
+
+  function go(hash) {
+    if (location.hash === hash) route(); else location.hash = hash;
   }
 
   // ---------- 이벤트 ----------
   function bindEvents() {
-    $$('.tab').forEach(t => t.addEventListener('click', () => switchView(t.dataset.view)));
-    $('#btn-add').addEventListener('click', () => openForm());
+    window.addEventListener('hashchange', route);
+
     document.addEventListener('click', e => {
-      if (e.target.closest('[data-action="add"]')) openForm();
+      if (e.target.closest('[data-action="add"]')) { e.preventDefault(); openAlbumForm(); }
       const closer = e.target.closest('[data-close]');
       if (closer) closer.closest('dialog').close();
     });
 
-    $('#search').addEventListener('input', renderCollection);
-    $('#filter-format').addEventListener('change', renderCollection);
-    $('#filter-status').addEventListener('change', renderCollection);
-    $('#sort').addEventListener('change', () => { prefs.sort = $('#sort').value; savePrefs(); renderCollection(); });
+    // 사이드바
+    $('#btn-menu').addEventListener('click', () => document.body.classList.toggle('nav-open'));
+    $('#scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
+    $$('.side-nav a[data-nav]').forEach(a => a.addEventListener('click', e => {
+      const nav = a.dataset.nav;
+      if (['all', 'owned', 'wishlist', 'sold'].includes(nav)) {
+        e.preventDefault();
+        filter = { status: nav, artist: null };
+        $('#search').value = '';
+        go('#/');
+      }
+    }));
+    $('#side-artists').addEventListener('click', e => {
+      const b = e.target.closest('button[data-artist]');
+      if (!b) return;
+      filter = { status: 'all', artist: b.dataset.artist };
+      $('#search').value = '';
+      go('#/');
+    });
+
+    // 목록
+    $('#search').addEventListener('input', renderList);
+    $('#sort').addEventListener('change', () => { prefs.sort = $('#sort').value; savePrefs(); renderList(); });
     $('#view-grid').addEventListener('click', () => setLayout('grid'));
     $('#view-list').addEventListener('click', () => setLayout('list'));
 
-    $('#album-container').addEventListener('click', e => {
-      const card = e.target.closest('[data-id]');
-      if (card) openDetail(card.dataset.id);
-    });
-    $('#album-container').addEventListener('keydown', e => {
-      const card = e.target.closest('[data-id]');
-      if (card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openDetail(card.dataset.id); }
-    });
-
-    // 폼
-    $('#album-form').addEventListener('submit', onSubmit);
+    // 앨범 폼
+    $('#album-form').addEventListener('submit', onAlbumSubmit);
     $('#f-barcode').addEventListener('input', updateBarcodeHint);
-    $('#f-barcode').addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); doLookup(); }
-    });
+    $('#f-barcode').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doLookup(); } });
     $('#btn-lookup').addEventListener('click', doLookup);
     $('#btn-scan').addEventListener('click', openScanner);
-    $('#btn-add-matrix').addEventListener('click', () => addMatrixRow());
-    $('#matrix-list').addEventListener('click', e => {
-      if (e.target.closest('.rm-matrix')) e.target.closest('.matrix-row').remove();
+    $('#btn-form-add-disc').addEventListener('click', () => {
+      $('#form-discs').appendChild(discEditor({}, $$('#form-discs .disc-editor').length + 1, true));
+    });
+    $('#form-discs').addEventListener('click', e => {
+      if (!e.target.closest('.rm-disc')) return;
+      e.target.closest('.disc-editor').remove();
+      renumberEditors();
     });
     $('#f-cover-file').addEventListener('change', async e => {
       const file = e.target.files[0];
+      e.target.value = '';
       if (!file) return;
       try { setCover(await Util.resizeImage(file)); } catch (err) { toast(err.message); }
-      e.target.value = '';
     });
     $('#btn-cover-clear').addEventListener('click', () => setCover(null));
-    $('#btn-delete').addEventListener('click', () => editingId && deleteAlbum(editingId));
     $('#dlg-scan').addEventListener('close', () => Scanner.stop($('#scan-video')));
+
+    // CD 폼
+    $('#disc-form').addEventListener('submit', onDiscSubmit);
+    $('#btn-disc-delete').addEventListener('click', deleteDisc);
 
     // 백업
     $('#btn-export-json').addEventListener('click', exportJSON);
     $('#btn-export-csv').addEventListener('click', exportCSV);
     $('#import-json').addEventListener('change', importJSON);
     $('#btn-clear').addEventListener('click', clearAll);
-  }
-
-  function switchView(name) {
-    $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
-    $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
-    if (name === 'stats') renderStats();
   }
 
   function setLayout(layout, persist = true) {
@@ -98,20 +160,38 @@
     if (persist) { prefs.layout = layout; savePrefs(); }
   }
 
-  // ---------- 렌더링 ----------
-  function render() {
-    renderFormatFilter();
+  // ---------- 공통 렌더 ----------
+  function renderShell() {
+    const st = s => albums.filter(a => (a.status || 'owned') === s).length;
+    $('#cnt-all').textContent = albums.length || '';
+    $('#cnt-owned').textContent = st('owned') || '';
+    $('#cnt-wishlist').textContent = st('wishlist') || '';
+    $('#cnt-sold').textContent = st('sold') || '';
+
+    const counts = new Map();
+    albums.forEach(a => counts.set(a.artist, (counts.get(a.artist) || 0) + 1));
+    const artists = [...counts.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0], 'ko'));
+    $('#side-artists').innerHTML = artists.length
+      ? artists.map(([name, n]) => `<button data-artist="${esc(name)}"><span>${esc(name)}</span><span class="count">${n}</span></button>`).join('')
+      : '<p class="muted small" style="margin:0 10px;font-size:.82rem">아직 없음</p>';
+
+    const discCount = albums.filter(a => (a.status || 'owned') === 'owned').reduce((s, a) => s + a.discs.length, 0);
+    $('#side-foot').textContent = albums.length ? `앨범 ${albums.length}장 · 보유 디스크 ${discCount}장` : '';
+
     renderDatalists();
-    renderCollection();
-    if ($('#view-stats').classList.contains('active')) renderStats();
+    updateNavActive();
   }
 
-  function renderFormatFilter() {
-    const sel = $('#filter-format');
-    const cur = sel.value;
-    const formats = [...new Set(albums.map(a => a.format).filter(Boolean))].sort();
-    sel.innerHTML = '<option value="">모든 포맷</option>' + formats.map(f => `<option>${esc(f)}</option>`).join('');
-    sel.value = formats.includes(cur) ? cur : '';
+  function updateNavActive(page) {
+    page = page || ($('.page.active') || {}).id?.replace('page-', '');
+    $$('.side-nav a[data-nav]').forEach(a => {
+      const nav = a.dataset.nav;
+      let on = false;
+      if (page === 'list') on = !filter.artist && nav === filter.status;
+      else on = nav === page;
+      a.classList.toggle('active', on);
+    });
+    $$('#side-artists button').forEach(b => b.classList.toggle('active', page === 'list' && b.dataset.artist === filter.artist));
   }
 
   function renderDatalists() {
@@ -125,24 +205,46 @@
     fill('dl-places', 'purchasePlace');
   }
 
+  function coverHTML(a) {
+    return a.cover
+      ? `<img class="cover" src="${a.cover}" alt="${esc(a.title)} 표지" loading="lazy">`
+      : `<div class="cover placeholder"><span>${esc(a.title)}</span></div>`;
+  }
+
+  function stars(n) {
+    n = Number(n) || 0;
+    return n ? '★'.repeat(n) + '☆'.repeat(5 - n) : '';
+  }
+
+  // 디스크 구성 요약: [CD] → "CD", [CD,CD] → "2CD", [CD,DVD] → "CD+DVD"
+  function discSummary(discs) {
+    if (!discs.length) return '';
+    const groups = [];
+    discs.forEach(d => {
+      const last = groups[groups.length - 1];
+      if (last && last.type === d.type) last.n++; else groups.push({ type: d.type || 'CD', n: 1 });
+    });
+    return groups.map(g => (g.n > 1 ? g.n : '') + g.type).join('+');
+  }
+
+  // ---------- 목록 ----------
   function searchText(a) {
-    const matrix = (a.matrix || []).map(m => [m.code, m.mastering, m.mould].join(' ')).join(' ');
+    const discs = a.discs.map(d => [d.title, d.matrix, d.mastering, d.mould, d.tracklist].join(' ')).join(' ');
     return [a.title, a.artist, a.label, a.catalogNo, a.barcode, a.country, a.edition, a.location,
-      (a.tags || []).join(' '), a.notes, matrix].join(' ').toLowerCase();
+      (a.tags || []).join(' '), a.notes, discs].join(' ').toLowerCase();
   }
 
   function filtered() {
     const q = $('#search').value.trim().toLowerCase();
-    const qCompact = q.replace(/\s+/g, '');
-    const fmt = $('#filter-format').value;
-    const st = $('#filter-status').value;
+    const compact = s => s.replace(/[\s\-_./]+/g, '');
+    const qCompact = compact(q);
     const list = albums.filter(a => {
-      if (fmt && a.format !== fmt) return false;
-      if (st && (a.status || 'owned') !== st) return false;
+      if (filter.status !== 'all' && (a.status || 'owned') !== filter.status) return false;
+      if (filter.artist && a.artist !== filter.artist) return false;
       if (!q) return true;
       const text = searchText(a);
-      // 매트릭스 번호는 공백 유무가 제각각이라 공백을 무시하고도 비교
-      return text.includes(q) || text.replace(/\s+/g, '').includes(qCompact);
+      // 매트릭스는 띄어쓰기·하이픈이 제각각이라 이를 무시하고도 비교
+      return text.includes(q) || (qCompact && compact(text).includes(qCompact));
     });
     const cmp = (x, y) => String(x || '').localeCompare(String(y || ''), 'ko');
     const sorters = {
@@ -156,151 +258,201 @@
     return list.sort(sorters[$('#sort').value] || sorters['added-desc']);
   }
 
-  function coverHTML(a, cls = 'cover') {
-    return a.cover
-      ? `<img class="${cls}" src="${a.cover}" alt="" loading="lazy">`
-      : `<div class="${cls} placeholder"><span class="disc" aria-hidden="true"></span></div>`;
-  }
+  function renderList() {
+    const title = filter.artist || (filter.status === 'all' ? '전체 앨범' : STATUS_LABEL[filter.status]);
+    $('#list-title').textContent = title;
 
-  function stars(n) {
-    n = Number(n) || 0;
-    return n ? '★'.repeat(n) + '☆'.repeat(5 - n) : '';
-  }
-
-  function renderCollection() {
     const list = filtered();
     const container = $('#album-container');
     const empty = albums.length === 0;
     $('#empty').classList.toggle('hidden', !empty);
     container.classList.toggle('hidden', empty);
-    $('#result-count').textContent = empty ? '' :
-      (list.length === albums.length ? `총 ${albums.length}장` : `${list.length}장 / 총 ${albums.length}장`);
+    $('.toolbar').classList.toggle('hidden', empty);
+    $('#result-count').textContent = empty ? '' : `${list.length}장`;
 
-    if (!empty && list.length === 0) {
-      container.innerHTML = '<p class="muted no-result">검색 결과가 없습니다.</p>';
+    if (!empty && !list.length) {
+      container.innerHTML = '<p class="muted no-result">해당하는 앨범이 없습니다.</p>';
       return;
     }
-
     container.innerHTML = list.map(a => {
       const status = a.status && a.status !== 'owned' ? `<span class="badge ${a.status}">${STATUS_LABEL[a.status]}</span>` : '';
-      const meta = [a.year, a.format, a.label].filter(Boolean).map(esc).join(' · ');
+      const meta = [a.year, discSummary(a.discs), a.label].filter(Boolean).map(esc).join(' · ');
+      const firstMatrix = (a.discs.find(d => d.matrix) || {}).matrix;
       return `
-        <article class="album" data-id="${a.id}" tabindex="0">
+        <a class="album" href="#/album/${encodeURIComponent(a.id)}">
           ${coverHTML(a)}
           <div class="info">
-            <div class="title">${esc(a.title)} ${status}</div>
+            <div class="title">${esc(a.title)}${status}</div>
             <div class="artist">${esc(a.artist)}</div>
             <div class="meta">${meta}</div>
             <div class="codes">
-              ${a.barcode ? `<span title="바코드">▮▯▮ ${esc(a.barcode)}</span>` : ''}
-              ${a.catalogNo ? `<span title="카탈로그 번호">${esc(a.catalogNo)}</span>` : ''}
-              ${(a.matrix || []).length ? `<span title="매트릭스">◎ ${esc(a.matrix[0].code)}${a.matrix.length > 1 ? ` 외 ${a.matrix.length - 1}` : ''}</span>` : ''}
+              ${a.barcode ? `<span>${esc(a.barcode)}</span>` : ''}
+              ${firstMatrix ? `<span>${esc(firstMatrix)}</span>` : ''}
             </div>
             ${a.rating ? `<div class="stars">${stars(a.rating)}</div>` : ''}
           </div>
-        </article>`;
+        </a>`;
     }).join('');
   }
 
-  // ---------- 상세 ----------
-  function openDetail(id) {
+  // ---------- 앨범 상세 ----------
+  function renderAlbumPage(id) {
+    const page = $('#page-album');
     const a = albums.find(x => x.id === id);
-    if (!a) return;
+    if (!a) {
+      page.innerHTML = '<a href="#/" class="back">← 목록으로</a><p class="muted">앨범을 찾을 수 없습니다.</p>';
+      return;
+    }
     const row = (label, val) => val ? `<dt>${label}</dt><dd>${val}</dd>` : '';
-    const matrixRows = (a.matrix || []).map(m => `
-      <tr><td>${esc(m.disc || '')}</td><td class="mono">${esc(m.code)}</td><td class="mono">${esc(m.mastering || '')}</td><td class="mono">${esc(m.mould || '')}</td></tr>`).join('');
-    const tracks = (a.tracklist || '').trim();
+    const discCards = a.discs.map((d, i) => {
+      const code = (label, v) => `<tr><th>${label}</th><td class="${v ? '' : 'none'}">${v ? esc(v) : '—'}</td></tr>`;
+      return `
+        <article class="disc-card">
+          <div class="disc-card-head">
+            <div>
+              <span class="disc-no">Disc ${i + 1}</span><span class="disc-type">${esc(d.type || 'CD')}</span>
+              ${d.title ? `<p class="disc-sub">${esc(d.title)}</p>` : ''}
+            </div>
+            <button class="btn small" data-edit-disc="${d.id}">수정</button>
+          </div>
+          <table class="codes-table">
+            ${code('매트릭스', d.matrix)}
+            ${code('Mastering SID', d.mastering)}
+            ${code('Mould SID', d.mould)}
+          </table>
+          ${d.notes ? `<p class="disc-sub" style="margin-top:10px">${esc(d.notes)}</p>` : ''}
+          ${d.tracklist ? `<details><summary>트랙리스트 (${d.tracklist.split('\n').filter(Boolean).length})</summary><pre class="tracklist">${esc(d.tracklist)}</pre></details>` : ''}
+        </article>`;
+    }).join('');
 
-    $('#detail-body').innerHTML = `
-      <header class="dlg-head">
-        <h2>${esc(a.title)}</h2>
-        <button type="button" class="icon-btn" data-close aria-label="닫기">✕</button>
-      </header>
-      <div class="detail">
-        <div class="detail-cover">${coverHTML(a, 'cover large')}</div>
+    page.innerHTML = `
+      <a href="#/" class="back">← 목록으로</a>
+      <div class="album-hero">
+        ${coverHTML(a)}
         <div>
-          <p class="detail-artist">${esc(a.artist)}</p>
-          ${a.rating ? `<p class="stars">${stars(a.rating)}</p>` : ''}
+          <h1>${esc(a.title)}</h1>
+          <p class="hero-artist">${esc(a.artist)}</p>
+          ${a.rating ? `<div class="stars">${stars(a.rating)}</div>` : ''}
           <dl class="kv">
-            ${row('상태', esc(STATUS_LABEL[a.status || 'owned']))}
             ${row('바코드', a.barcode ? `<span class="mono">${esc(a.barcode)}</span>` : '')}
             ${row('카탈로그', a.catalogNo ? `<span class="mono">${esc(a.catalogNo)}</span>` : '')}
             ${row('레이블', esc(a.label))}
-            ${row('발매', esc([a.year, a.country].filter(Boolean).join(' / ')))}
-            ${row('포맷', esc([a.format, a.discs > 1 ? a.discs + '장' : ''].filter(Boolean).join(' · ')))}
+            ${row('발매', esc([a.year, a.country].filter(Boolean).join(' · ')))}
+            ${row('구성', esc(discSummary(a.discs)))}
             ${row('에디션', esc(a.edition))}
-            ${row('디스크 상태', esc(a.mediaCondition))}
-            ${row('케이스 상태', esc(a.sleeveCondition))}
+            ${row('상태', esc([STATUS_LABEL[a.status || 'owned'], a.mediaCondition && '디스크 ' + a.mediaCondition, a.sleeveCondition && '케이스 ' + a.sleeveCondition].filter(Boolean).join(' · ')))}
             ${row('보관 위치', esc(a.location))}
             ${row('구입', esc([a.purchaseDate, a.purchasePlace, a.price ? Util.won(a.price) : ''].filter(Boolean).join(' · ')))}
-            ${row('태그', (a.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join(' '))}
-            ${row('MusicBrainz', a.musicbrainzId ? `<a href="https://musicbrainz.org/release/${esc(a.musicbrainzId)}" target="_blank" rel="noopener">릴리스 페이지 ↗</a>` : '')}
+            ${row('태그', (a.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join(''))}
+            ${row('MusicBrainz', a.musicbrainzId ? `<a href="https://musicbrainz.org/release/${esc(a.musicbrainzId)}" target="_blank" rel="noopener">릴리스 보기 ↗</a>` : '')}
           </dl>
+          <div class="hero-actions">
+            <button class="btn primary" id="btn-edit-album">앨범 정보 수정</button>
+            <button class="btn" id="btn-dup-album" title="같은 앨범의 다른 프레싱 등록">다른 프레싱 등록</button>
+            <button class="btn danger" id="btn-del-album">삭제</button>
+          </div>
         </div>
       </div>
-      ${matrixRows ? `
-        <h3>매트릭스 / 런아웃</h3>
-        <div class="table-wrap"><table class="matrix-table">
-          <thead><tr><th>디스크</th><th>매트릭스 / 런아웃</th><th>Mastering SID</th><th>Mould SID</th></tr></thead>
-          <tbody>${matrixRows}</tbody>
-        </table></div>` : ''}
-      ${tracks ? `<h3>트랙리스트</h3><pre class="tracklist">${esc(tracks)}</pre>` : ''}
-      ${a.notes ? `<h3>메모</h3><p class="notes">${esc(a.notes)}</p>` : ''}
-      <footer class="dlg-foot">
-        <span class="muted small">등록 ${new Date(a.createdAt).toLocaleDateString('ko-KR')}${a.updatedAt && a.updatedAt !== a.createdAt ? ` · 수정 ${new Date(a.updatedAt).toLocaleDateString('ko-KR')}` : ''}</span>
-        <span class="spacer"></span>
-        <button type="button" class="btn" id="btn-dup">복제</button>
-        <button type="button" class="btn primary" id="btn-edit">수정</button>
-      </footer>`;
-    $('#btn-edit').onclick = () => { $('#dlg-detail').close(); openForm(a); };
-    $('#btn-dup').onclick = () => {
-      $('#dlg-detail').close();
-      // 같은 앨범의 다른 프레싱을 등록할 때 편리하도록 매트릭스·구입정보를 비운 사본
-      openForm({ ...a, id: null, matrix: [], purchaseDate: '', purchasePlace: '', price: '', mediaCondition: '', sleeveCondition: '', createdAt: null }, true);
-    };
-    $('#dlg-detail').showModal();
+
+      <section class="section">
+        <div class="section-head">
+          <h2>수록 CD<small>${a.discs.length}장</small></h2>
+        </div>
+        <div class="discs">
+          ${discCards}
+          <button class="disc-add" id="btn-add-disc"><b>＋</b>CD 추가</button>
+        </div>
+      </section>
+
+      ${a.notes ? `<section class="section"><div class="section-head"><h2>메모</h2></div><p class="notes">${esc(a.notes)}</p></section>` : ''}
+
+      <p class="foot-meta">등록 ${new Date(a.createdAt).toLocaleDateString('ko-KR')}${a.updatedAt && a.updatedAt !== a.createdAt ? ` · 수정 ${new Date(a.updatedAt).toLocaleDateString('ko-KR')}` : ''}</p>`;
+
+    $('#btn-edit-album').onclick = () => openAlbumForm(a);
+    $('#btn-del-album').onclick = () => deleteAlbum(a.id);
+    $('#btn-dup-album').onclick = () => openAlbumForm({
+      ...a, id: null, createdAt: null,
+      discs: a.discs.map(d => ({ ...d, id: uid(), matrix: '', mastering: '', mould: '', notes: '' })),
+      purchaseDate: Util.today(), purchasePlace: '', price: '', mediaCondition: '', sleeveCondition: '',
+    }, true);
+    $('#btn-add-disc').onclick = () => openDiscForm(a.id, null);
+    $$('[data-edit-disc]', page).forEach(b => { b.onclick = () => openDiscForm(a.id, b.dataset.editDisc); });
   }
 
-  // ---------- 폼 ----------
-  function openForm(album = null, asNew = false) {
+  // ---------- CD 편집기 (앨범 폼 / CD 폼 공용) ----------
+  function discEditor(d, no, removable) {
+    const el = document.createElement('div');
+    el.className = 'disc-editor';
+    el.dataset.discId = d.id || uid();
+    el.innerHTML = `
+      <div class="disc-editor-head">
+        <strong class="d-no">Disc ${no}</strong>
+        <span class="spacer"></span>
+        ${removable ? '<button type="button" class="link-btn rm-disc">삭제</button>' : ''}
+      </div>
+      <div class="disc-grid">
+        <label>종류
+          <select class="d-type">${DISC_TYPES.map(t => `<option${t === (d.type || 'CD') ? ' selected' : ''}>${t}</option>`).join('')}</select>
+        </label>
+        <label>디스크 부제<input class="d-title" placeholder="예: Bonus Disc" value="${esc(d.title || '')}"></label>
+        <label class="full">매트릭스 / 런아웃<input class="d-matrix mono" placeholder="예: SRCL-1234 1A1" value="${esc(d.matrix || '')}"></label>
+        <div class="sids">
+          <label>Mastering SID<input class="d-mastering mono" placeholder="IFPI L…" value="${esc(d.mastering || '')}"></label>
+          <label>Mould SID<input class="d-mould mono" placeholder="IFPI …" value="${esc(d.mould || '')}"></label>
+        </div>
+      </div>
+      <details${d.tracklist || d.notes ? ' open' : ''}>
+        <summary>트랙리스트 · 메모</summary>
+        <div class="disc-grid" style="margin-top:8px">
+          <label class="full">트랙리스트 (한 줄에 한 곡)<textarea class="d-tracklist" rows="5">${esc(d.tracklist || '')}</textarea></label>
+          <label class="full">메모<input class="d-notes" placeholder="디스크 관련 특이사항" value="${esc(d.notes || '')}"></label>
+        </div>
+      </details>`;
+    return el;
+  }
+
+  function readDiscEditor(el) {
+    const v = sel => $(sel, el).value.trim();
+    return {
+      id: el.dataset.discId, type: v('.d-type'), title: v('.d-title'),
+      matrix: v('.d-matrix'), mastering: v('.d-mastering'), mould: v('.d-mould'),
+      tracklist: v('.d-tracklist'), notes: v('.d-notes'),
+    };
+  }
+
+  function renumberEditors() {
+    $$('#form-discs .disc-editor').forEach((el, i) => { $('.d-no', el).textContent = `Disc ${i + 1}`; });
+  }
+
+  // ---------- 앨범 폼 ----------
+  function openAlbumForm(album = null, asNew = false) {
     const form = $('#album-form');
     form.reset();
-    editingId = album && !asNew ? album.id : null;
-    $('#form-title').textContent = editingId ? '앨범 수정' : '앨범 등록';
-    $('#btn-delete').classList.toggle('hidden', !editingId);
+    editingAlbumId = album && !asNew ? album.id : null;
+    $('#album-form-title').textContent = editingAlbumId ? '앨범 정보 수정' : asNew ? '다른 프레싱 등록' : '앨범 등록';
     $('#lookup-results').innerHTML = '';
-    $('#matrix-list').innerHTML = '';
 
-    const a = album || { status: 'owned', format: 'CD', discs: 1, purchaseDate: Util.today() };
+    const a = album || { status: 'owned', purchaseDate: Util.today(), discs: [] };
     for (const el of form.elements) {
       if (!el.name || el.type === 'file') continue;
-      let v = a[el.name];
-      if (el.name === 'tags') v = (a.tags || []).join(', ');
+      let v = el.name === 'tags' ? (a.tags || []).join(', ') : a[el.name];
       if (v !== undefined && v !== null) el.value = v;
     }
-    (a.matrix && a.matrix.length ? a.matrix : [{}]).forEach(m => addMatrixRow(m));
+    const discs = a.discs && a.discs.length ? a.discs : [{}];
+    $('#form-discs').innerHTML = '';
+    discs.forEach((d, i) => $('#form-discs').appendChild(discEditor(d, i + 1, true)));
     setCover(a.cover || null);
     updateBarcodeHint();
-    $('#dlg-edit').showModal();
-    if (!editingId) $('#f-barcode').focus();
-  }
-
-  function addMatrixRow(m = {}) {
-    const discCount = $$('.matrix-row').length + 1;
-    const div = document.createElement('div');
-    div.className = 'matrix-row';
-    div.innerHTML = `
-      <input class="m-disc" placeholder="디스크" value="${esc(m.disc || discCount)}" aria-label="디스크 번호">
-      <input class="m-code mono" placeholder="매트릭스 / 런아웃 (예: DIDP-1234 1A1)" value="${esc(m.code || '')}" aria-label="매트릭스">
-      <input class="m-mastering mono" placeholder="IFPI L..." value="${esc(m.mastering || '')}" aria-label="Mastering SID">
-      <input class="m-mould mono" placeholder="IFPI ..." value="${esc(m.mould || '')}" aria-label="Mould SID">
-      <button type="button" class="icon-btn rm-matrix" aria-label="삭제">✕</button>`;
-    $('#matrix-list').appendChild(div);
+    $('#dlg-album').showModal();
+    $('.dlg-body', form).scrollTop = 0;
   }
 
   function setCover(dataUrl) {
     formCover = dataUrl;
-    $('#cover-preview').innerHTML = dataUrl ? `<img src="${dataUrl}" alt="커버">` : '<span>커버 없음</span>';
+    const p = $('#cover-preview');
+    p.classList.toggle('has', !!dataUrl);
+    p.innerHTML = dataUrl ? `<img src="${dataUrl}" alt="표지">` : '<span>＋ 표지 등록</span>';
+    $('#btn-cover-clear').classList.toggle('hidden', !dataUrl);
   }
 
   function updateBarcodeHint() {
@@ -309,15 +461,15 @@
     hint.className = 'hint';
     if (!code) { hint.textContent = ''; return; }
     const parts = [];
-    const valid = Util.validateBarcode(code);
-    if (valid === false) { parts.push('⚠ 체크 디지트가 맞지 않습니다. 번호를 확인해 주세요.'); hint.classList.add('warn'); }
-    const dups = albums.filter(a => a.barcode === code && a.id !== editingId);
+    if (Util.validateBarcode(code) === false) parts.push('체크 디지트가 맞지 않습니다. 번호를 확인해 주세요.');
+    const dups = albums.filter(a => a.barcode === code && a.id !== editingAlbumId);
     if (dups.length) {
-      hint.classList.add('warn');
-      parts.push(`이미 같은 바코드로 ${dups.length}건 등록됨: ` + dups.map(d =>
-        `${d.artist} – ${d.title}${(d.matrix || []).length ? ` [${d.matrix.map(m => m.code).join(', ')}]` : ''}`).join(' / ') +
-        ' — 다른 프레싱이라면 매트릭스로 구분하세요.');
+      parts.push(`같은 바코드로 이미 ${dups.length}건 등록됨 — ` + dups.map(d => {
+        const mx = d.discs.map(x => x.matrix).filter(Boolean);
+        return `${d.title}${mx.length ? ` [${mx.join(', ')}]` : ''}`;
+      }).join(' / ') + '. 다른 프레싱이라면 매트릭스로 구분하세요.');
     }
+    if (parts.length) hint.classList.add('warn');
     hint.textContent = parts.join(' ');
   }
 
@@ -332,9 +484,9 @@
         box.innerHTML = '<p class="muted">검색 결과가 없습니다. 정보를 직접 입력해 주세요.</p>';
         return;
       }
-      box.innerHTML = '<p class="muted small">결과를 선택하면 아래 항목이 채워집니다.</p>' + results.map((r, i) => `
+      box.innerHTML = '<p class="muted">맞는 항목을 선택하면 아래 정보가 채워집니다.</p>' + results.map((r, i) => `
         <button type="button" class="lookup-item" data-i="${i}">
-          <strong>${esc(r.artist)} – ${esc(r.title)}</strong>
+          <strong>${esc(r.artist)} — ${esc(r.title)}</strong>
           <span>${esc([r.date, r.country, r.label, r.catalogNo, r.format].filter(Boolean).join(' · '))}</span>
         </button>`).join('');
       $$('.lookup-item', box).forEach(btn => btn.addEventListener('click', () => applyLookup(results[+btn.dataset.i])));
@@ -352,50 +504,48 @@
     set('catalogNo', r.catalogNo);
     set('year', r.year);
     set('country', r.country);
-    set('discs', r.discs);
     set('musicbrainzId', r.musicbrainzId);
-    const fmt = Lookup.mapFormat(r.format);
-    if (fmt) set('format', fmt);
-    $('#lookup-results').innerHTML = '<p class="muted">트랙리스트와 커버를 가져오는 중…</p>';
+    $('#lookup-results').innerHTML = '<p class="muted">수록 CD와 표지를 가져오는 중…</p>';
+
     const [det, blob] = await Promise.all([
       Lookup.details(r.musicbrainzId).catch(() => null),
       formCover ? Promise.resolve(null) : Lookup.coverBlob(r.musicbrainzId),
     ]);
-    if (det && det.tracklist && !form.elements.tracklist.value.trim()) form.elements.tracklist.value = det.tracklist;
-    if (blob) { try { setCover(await Util.resizeImage(blob)); } catch { /* 커버 없음 */ } }
-    $('#lookup-results').innerHTML = '<p class="muted">✓ 정보를 불러왔습니다. 매트릭스 번호는 디스크를 보고 직접 입력해 주세요.</p>';
+    if (det && det.discs.length) {
+      det.discs.forEach((md, i) => {
+        let el = $$('#form-discs .disc-editor')[i];
+        if (!el) { el = discEditor({}, i + 1, true); $('#form-discs').appendChild(el); }
+        $('.d-type', el).value = md.type;
+        if (md.title && !$('.d-title', el).value) $('.d-title', el).value = md.title;
+        if (md.tracklist && !$('.d-tracklist', el).value) $('.d-tracklist', el).value = md.tracklist;
+      });
+    }
+    if (blob) { try { setCover(await Util.resizeImage(blob)); } catch { /* 표지 없음 */ } }
+    $('#lookup-results').innerHTML = '<p class="muted">✓ 정보를 불러왔습니다. 매트릭스는 디스크를 보고 직접 입력해 주세요.</p>';
   }
 
-  async function onSubmit(e) {
+  async function onAlbumSubmit(e) {
     e.preventDefault();
-    const form = e.target;
-    const fd = new FormData(form);
-    const title = (fd.get('title') || '').trim();
-    const artist = (fd.get('artist') || '').trim();
-    if (!title || !artist) { toast('제목과 아티스트는 필수입니다'); return; }
-
-    const existing = editingId ? albums.find(a => a.id === editingId) : null;
-    const now = Date.now();
-    const num = k => { const v = fd.get(k); return v === '' || v == null ? '' : Number(v); };
+    const fd = new FormData(e.target);
     const str = k => (fd.get(k) || '').toString().trim();
+    const num = k => { const v = str(k); return v === '' ? '' : Number(v); };
+    const title = str('title');
+    const artist = str('artist');
+    if (!title || !artist) { toast('앨범 제목과 아티스트는 필수입니다'); return; }
 
+    const existing = editingAlbumId ? albums.find(a => a.id === editingAlbumId) : null;
+    const now = Date.now();
     const album = {
-      id: editingId || uid(),
+      ...(existing || {}),
+      id: editingAlbumId || uid(),
       title, artist,
-      barcode: Util.normalizeBarcode(fd.get('barcode')),
+      barcode: Util.normalizeBarcode(str('barcode')),
       label: str('label'),
       catalogNo: str('catalogNo'),
       year: num('year'),
       country: str('country').toUpperCase(),
-      format: str('format'),
-      discs: num('discs') || 1,
       edition: str('edition'),
-      matrix: $$('.matrix-row').map(r => ({
-        disc: $('.m-disc', r).value.trim(),
-        code: $('.m-code', r).value.trim(),
-        mastering: $('.m-mastering', r).value.trim(),
-        mould: $('.m-mould', r).value.trim(),
-      })).filter(m => m.code || m.mastering || m.mould),
+      discs: $$('#form-discs .disc-editor').map(readDiscEditor),
       status: str('status') || 'owned',
       mediaCondition: str('mediaCondition'),
       sleeveCondition: str('sleeveCondition'),
@@ -405,41 +555,85 @@
       price: num('price'),
       rating: Number(fd.get('rating')) || 0,
       tags: str('tags').split(',').map(t => t.trim()).filter(Boolean),
-      tracklist: str('tracklist'),
       notes: str('notes'),
       musicbrainzId: str('musicbrainzId'),
       cover: formCover,
       createdAt: existing ? existing.createdAt : now,
       updatedAt: now,
     };
+    await saveAlbum(album);
+    $('#dlg-album').close();
+    toast(existing ? '저장했습니다' : `「${album.title}」 등록 완료`);
+    go('#/album/' + encodeURIComponent(album.id));
+  }
 
+  async function saveAlbum(album) {
     await DB.put(album);
     const idx = albums.findIndex(a => a.id === album.id);
     if (idx >= 0) albums[idx] = album; else albums.push(album);
-    $('#dlg-edit').close();
-    render();
-    toast(existing ? '수정했습니다' : `「${album.title}」 등록 완료`);
+    renderShell();
   }
 
   async function deleteAlbum(id) {
     const a = albums.find(x => x.id === id);
-    if (!a || !confirm(`「${a.artist} – ${a.title}」을(를) 삭제할까요?`)) return;
+    if (!a || !confirm(`「${a.title}」 앨범을 삭제할까요? 수록 CD 정보도 함께 삭제됩니다.`)) return;
     await DB.remove(id);
     albums = albums.filter(x => x.id !== id);
-    $('#dlg-edit').close();
-    render();
+    renderShell();
     toast('삭제했습니다');
+    go('#/');
+  }
+
+  // ---------- CD 폼 ----------
+  function openDiscForm(albumId, discId) {
+    const a = albums.find(x => x.id === albumId);
+    if (!a) return;
+    discTarget = { albumId, discId };
+    const idx = discId ? a.discs.findIndex(d => d.id === discId) : a.discs.length;
+    const disc = discId ? a.discs[idx] : {};
+    $('#disc-form-title').textContent = discId ? `Disc ${idx + 1} 수정` : `Disc ${idx + 1} 추가`;
+    $('#btn-disc-delete').classList.toggle('hidden', !discId);
+    const body = $('#disc-form-body');
+    body.className = 'dlg-body disc-form-single';
+    body.innerHTML = '';
+    body.appendChild(discEditor(disc, idx + 1, false));
+    $('details', body).open = true;
+    $('#dlg-disc').showModal();
+  }
+
+  async function onDiscSubmit(e) {
+    e.preventDefault();
+    const a = albums.find(x => x.id === discTarget.albumId);
+    if (!a) return;
+    const disc = readDiscEditor($('#disc-form-body .disc-editor'));
+    const discs = [...a.discs];
+    const idx = discs.findIndex(d => d.id === disc.id);
+    if (idx >= 0) discs[idx] = disc; else discs.push(disc);
+    await saveAlbum({ ...a, discs, updatedAt: Date.now() });
+    $('#dlg-disc').close();
+    toast(idx >= 0 ? 'CD 정보를 저장했습니다' : `Disc ${discs.length} 추가 완료`);
+    route();
+  }
+
+  async function deleteDisc() {
+    const a = albums.find(x => x.id === discTarget.albumId);
+    if (!a || !discTarget.discId) return;
+    const idx = a.discs.findIndex(d => d.id === discTarget.discId);
+    if (!confirm(`Disc ${idx + 1}을(를) 삭제할까요?`)) return;
+    await saveAlbum({ ...a, discs: a.discs.filter(d => d.id !== discTarget.discId), updatedAt: Date.now() });
+    $('#dlg-disc').close();
+    toast('CD를 삭제했습니다');
+    route();
   }
 
   // ---------- 스캐너 ----------
   async function openScanner() {
     const dlg = $('#dlg-scan');
-    const video = $('#scan-video');
     const status = $('#scan-status');
     status.textContent = '카메라를 여는 중…';
     dlg.showModal();
     try {
-      await Scanner.start(video, code => {
+      await Scanner.start($('#scan-video'), code => {
         dlg.close();
         $('#f-barcode').value = Util.normalizeBarcode(code);
         updateBarcodeHint();
@@ -447,50 +641,47 @@
         doLookup();
       }, msg => { status.textContent = msg; });
     } catch (err) {
-      status.textContent = '⚠ ' + (err.name === 'NotAllowedError' ? '카메라 권한이 거부되었습니다.' : err.message);
+      status.textContent = err.name === 'NotAllowedError' ? '카메라 권한이 거부되었습니다. 브라우저 설정에서 허용해 주세요.' : err.message;
     }
   }
 
   // ---------- 통계 ----------
   function renderStats() {
     const owned = albums.filter(a => (a.status || 'owned') === 'owned');
-    const wish = albums.filter(a => a.status === 'wishlist');
-    const discs = owned.reduce((s, a) => s + (Number(a.discs) || 1), 0);
+    const ownedDiscs = owned.flatMap(a => a.discs);
     const spent = owned.reduce((s, a) => s + (Number(a.price) || 0), 0);
-    const artists = new Set(owned.map(a => a.artist)).size;
-    const withMatrix = owned.filter(a => (a.matrix || []).length).length;
+    const withMatrix = ownedDiscs.filter(d => d.matrix).length;
 
     const countBy = (list, fn) => {
       const m = new Map();
-      list.forEach(a => { const k = fn(a); if (k) m.set(k, (m.get(k) || 0) + 1); });
+      list.forEach(x => { const k = fn(x); if (k) m.set(k, (m.get(k) || 0) + 1); });
       return [...m.entries()].sort((x, y) => y[1] - x[1]);
     };
     const bars = (title, entries, limit = 10) => {
       const top = entries.slice(0, limit);
       const max = Math.max(1, ...top.map(e => e[1]));
-      return `<div class="card"><h3>${title}</h3>${top.length ? top.map(([k, v]) => `
+      return `<div class="panel"><h3>${title}</h3>${top.length ? top.map(([k, v]) => `
         <div class="bar-row"><span class="bar-label" title="${esc(k)}">${esc(k)}</span>
           <span class="bar"><span style="width:${(v / max) * 100}%"></span></span><span class="bar-val">${v}</span></div>`).join('')
         : '<p class="muted">데이터 없음</p>'}</div>`;
     };
-
     const decades = countBy(owned, a => a.year ? Math.floor(a.year / 10) * 10 + '년대' : '')
       .sort((x, y) => parseInt(x[0]) - parseInt(y[0]));
 
     $('#stats').innerHTML = `
       <div class="stat-tiles">
         <div class="tile"><b>${owned.length}</b><span>보유 앨범</span></div>
-        <div class="tile"><b>${discs}</b><span>디스크 수</span></div>
-        <div class="tile"><b>${artists}</b><span>아티스트</span></div>
+        <div class="tile"><b>${ownedDiscs.length}</b><span>보유 디스크</span></div>
+        <div class="tile"><b>${new Set(owned.map(a => a.artist)).size}</b><span>아티스트</span></div>
+        <div class="tile"><b>${withMatrix}<small style="font-size:.9rem;color:var(--muted)"> / ${ownedDiscs.length}</small></b><span>매트릭스 기록</span></div>
         <div class="tile"><b>${Util.won(spent)}</b><span>총 구입액</span></div>
-        <div class="tile"><b>${withMatrix}</b><span>매트릭스 기록</span></div>
-        <div class="tile"><b>${wish.length}</b><span>위시리스트</span></div>
+        <div class="tile"><b>${albums.filter(a => a.status === 'wishlist').length}</b><span>위시리스트</span></div>
       </div>
       <div class="stat-grid">
-        ${bars('아티스트 TOP 10', countBy(owned, a => a.artist))}
+        ${bars('아티스트', countBy(owned, a => a.artist))}
         ${bars('연대별', decades, 20)}
-        ${bars('포맷별', countBy(owned, a => a.format))}
-        ${bars('레이블 TOP 10', countBy(owned, a => a.label))}
+        ${bars('디스크 종류', countBy(ownedDiscs, d => d.type))}
+        ${bars('레이블', countBy(owned, a => a.label))}
         ${bars('발매국가', countBy(owned, a => a.country))}
         ${bars('보관 위치', countBy(owned, a => a.location))}
       </div>`;
@@ -498,15 +689,16 @@
 
   // ---------- 백업 ----------
   function exportJSON() {
-    const data = { app: 'matrixandbarcode', version: 1, exportedAt: new Date().toISOString(), albums };
+    const data = { app: 'matrixandbarcode', version: 2, exportedAt: new Date().toISOString(), albums };
     Util.download(`cd-collection-${Util.today()}.json`, JSON.stringify(data, null, 2), 'application/json');
   }
 
   function exportCSV() {
-    const head = ['아티스트', '제목', '바코드', '카탈로그번호', '레이블', '발매년도', '국가', '포맷', '디스크수', '에디션',
-      '매트릭스', '상태', '디스크상태', '케이스상태', '보관위치', '구입일', '구입처', '구입가', '평점', '태그', '메모'];
-    const rows = albums.map(a => [a.artist, a.title, a.barcode, a.catalogNo, a.label, a.year, a.country, a.format, a.discs, a.edition,
-      (a.matrix || []).map(m => [m.disc && `D${m.disc}`, m.code, m.mastering, m.mould].filter(Boolean).join(' ')).join(' | '),
+    const head = ['아티스트', '앨범', '바코드', '카탈로그번호', '레이블', '발매년도', '국가', '구성', '에디션',
+      '매트릭스', 'Mastering SID', 'Mould SID', '상태', '디스크상태', '케이스상태', '보관위치', '구입일', '구입처', '구입가', '평점', '태그', '메모'];
+    const perDisc = (a, key) => a.discs.map((d, i) => d[key] ? `D${i + 1}: ${d[key]}` : '').filter(Boolean).join(' / ');
+    const rows = albums.map(a => [a.artist, a.title, a.barcode, a.catalogNo, a.label, a.year, a.country, discSummary(a.discs), a.edition,
+      perDisc(a, 'matrix'), perDisc(a, 'mastering'), perDisc(a, 'mould'),
       STATUS_LABEL[a.status || 'owned'], a.mediaCondition, a.sleeveCondition, a.location, a.purchaseDate, a.purchasePlace,
       a.price, a.rating || '', (a.tags || []).join(', '), a.notes]);
     // BOM을 붙여 엑셀에서 한글이 깨지지 않도록
@@ -521,11 +713,13 @@
       const data = JSON.parse(await file.text());
       const list = Array.isArray(data) ? data : data.albums;
       if (!Array.isArray(list)) throw new Error('올바른 백업 파일이 아닙니다');
-      const valid = list.filter(a => a && a.title && a.artist).map(a => ({ ...a, id: a.id || uid(), createdAt: a.createdAt || Date.now() }));
-      if (!confirm(`${valid.length}건을 불러옵니다. 같은 ID의 기존 데이터는 덮어씁니다. 계속할까요?`)) return;
+      const valid = list.filter(a => a && a.title && a.artist)
+        .map(a => normalize({ ...a, id: a.id || uid(), createdAt: a.createdAt || Date.now() }));
+      if (!confirm(`${valid.length}건을 불러옵니다. 같은 앨범이 있으면 덮어씁니다. 계속할까요?`)) return;
       await DB.putMany(valid);
-      albums = await DB.all();
-      render();
+      albums = (await DB.all()).map(normalize);
+      renderShell();
+      route();
       toast(`${valid.length}건을 불러왔습니다`);
     } catch (err) {
       toast('불러오기 실패: ' + err.message);
@@ -534,11 +728,11 @@
 
   async function clearAll() {
     if (!albums.length) return;
-    if (!confirm(`${albums.length}건을 모두 삭제합니다. 백업하셨나요?`)) return;
+    if (!confirm(`앨범 ${albums.length}건을 모두 삭제합니다. 백업하셨나요?`)) return;
     if (prompt('확인을 위해 "삭제"를 입력하세요') !== '삭제') return;
     await DB.clear();
     albums = [];
-    render();
+    renderShell();
     toast('모든 데이터를 삭제했습니다');
   }
 
@@ -554,6 +748,6 @@
 
   init().catch(err => {
     console.error(err);
-    document.querySelector('main').innerHTML = `<div class="card"><h2>저장소를 열 수 없습니다</h2><p>${esc(err.message)}</p><p class="muted">시크릿 모드에서는 IndexedDB가 제한될 수 있습니다.</p></div>`;
+    $('#main').innerHTML = `<div class="panel"><h2>저장소를 열 수 없습니다</h2><p>${esc(err.message)}</p><p class="muted">사파리 개인정보 보호 브라우징에서는 저장이 제한될 수 있습니다.</p></div>`;
   });
 })();

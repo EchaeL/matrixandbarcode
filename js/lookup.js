@@ -3,11 +3,14 @@
 window.Lookup = (() => {
   const MB = 'https://musicbrainz.org/ws/2';
 
-  async function byBarcode(barcode) {
-    const url = `${MB}/release/?query=barcode:${encodeURIComponent(barcode)}&fmt=json&limit=10`;
+  async function getJSON(url) {
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`MusicBrainz 응답 오류 (${res.status})`);
-    const data = await res.json();
+    return res.json();
+  }
+
+  async function byBarcode(barcode) {
+    const data = await getJSON(`${MB}/release/?query=barcode:${encodeURIComponent(barcode)}&fmt=json&limit=10`);
     return (data.releases || []).map(summarize);
   }
 
@@ -25,23 +28,19 @@ window.Lookup = (() => {
       catalogNo: li['catalog-number'] || '',
       barcode: r.barcode || '',
       format: media.map(m => m.format).filter(Boolean).join(' + '),
-      discs: media.length || 1,
-      trackCount: r['track-count'] || 0,
     };
   }
 
-  // 트랙리스트까지 포함한 상세 정보
+  // 디스크(미디어)별 종류와 트랙리스트
   async function details(mbid) {
-    const res = await fetch(`${MB}/release/${mbid}?inc=recordings&fmt=json`, { headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error(`MusicBrainz 응답 오류 (${res.status})`);
-    const r = await res.json();
-    const multi = (r.media || []).length > 1;
-    const tracks = [];
-    (r.media || []).forEach((m, di) => {
-      if (multi) tracks.push(`[Disc ${di + 1}${m.title ? ' – ' + m.title : ''}]`);
-      (m.tracks || []).forEach(t => tracks.push(`${t.number}. ${t.title}`));
-    });
-    return { tracklist: tracks.join('\n') };
+    const r = await getJSON(`${MB}/release/${mbid}?inc=recordings&fmt=json`);
+    return {
+      discs: (r.media || []).map(m => ({
+        type: mapDiscType(m.format),
+        title: m.title || '',
+        tracklist: (m.tracks || []).map(t => `${t.number}. ${t.title}`).join('\n'),
+      })),
+    };
   }
 
   // Cover Art Archive 이미지를 Blob으로 가져옴 (없으면 null)
@@ -55,21 +54,20 @@ window.Lookup = (() => {
     }
   }
 
-  function mapFormat(f) {
+  function mapDiscType(f) {
     const s = (f || '').toLowerCase();
-    if (!s) return '';
+    if (!s) return 'CD';
     if (s.includes('hybrid sacd')) return 'Hybrid SACD';
     if (s.includes('sacd')) return 'SACD';
     if (s.includes('shm')) return 'SHM-CD';
     if (s.includes('blu-spec')) return 'Blu-spec CD';
     if (s.includes('hqcd')) return 'HQCD';
     if (s.includes('cd-r')) return 'CD-R';
-    if (s.includes('dvd')) return 'CD+DVD';
-    if (s.includes('blu-ray')) return 'CD+Blu-ray';
-    if ((s.match(/cd/g) || []).length >= 2) return '2CD';
+    if (s.includes('dvd')) return 'DVD';
+    if (s.includes('blu-ray')) return 'Blu-ray';
     if (s.includes('cd')) return 'CD';
     return '기타';
   }
 
-  return { byBarcode, details, coverBlob, mapFormat };
+  return { byBarcode, details, coverBlob };
 })();
