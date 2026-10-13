@@ -1,7 +1,7 @@
 # Matrix & Barcode — CD 컬렉션 관리
 
 보유한 CD 앨범을 **바코드**와 **매트릭스(런아웃) 번호**까지 기록하며 관리하는 웹 사이트입니다.
-서버·회원가입 없이 브라우저만으로 동작하고, GitHub Pages에 그대로 올려 쓸 수 있습니다.
+구글 계정으로 로그인하면 컬렉션이 서버(Firebase)에 저장되어 어느 기기에서나 볼 수 있고, 로그인하지 않으면 그 기기에만 저장됩니다.
 
 ## 주요 기능
 
@@ -15,6 +15,7 @@
 - **사이드바** — 상태별·아티스트별(기록) 탐색, 통계, 백업
 - **발매일** — 연-월-일 전체 날짜 입력 (MusicBrainz에 연도만 있으면 연도만 보관)
 - **검색** — 제목/아티스트/바코드/매트릭스(띄어쓰기·하이픈 무시) 통합 검색
+- **구글 로그인 · 서버 저장** — 사람마다 자기 컬렉션이 따로 저장되고, 여러 기기에서 실시간으로 같이 보임
 - **백업** — JSON 백업/복원, CSV(엑셀) 내보내기
 
 ## 실행 방법
@@ -36,9 +37,22 @@ python3 -m http.server 8000
 
 ## 데이터 저장
 
-- 모든 데이터는 접속한 브라우저의 **IndexedDB**에 저장됩니다 (서버로 전송되지 않음).
-- 기기마다 데이터가 따로 저장되므로, 다른 기기로 옮길 때는 **백업/설정 → JSON 백업**을 내보내 불러오세요.
-- 브라우저 데이터를 삭제하면 컬렉션도 지워지니 주기적으로 백업하세요.
+- **로그인한 경우**: Firebase Firestore의 `users/{uid}/albums/{albumId}`에 저장됩니다. 보안 규칙으로 본인만 읽고 쓸 수 있습니다.
+- **로그인하지 않은 경우**: 그 브라우저의 IndexedDB에만 저장됩니다. 나중에 로그인하면 계정으로 옮길지 묻습니다.
+- Firebase 설정값은 `js/firebase-config.js`에 있습니다 (공개되어도 되는 값).
+
+Firestore 보안 규칙:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/albums/{albumId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
+```
 
 ## 파일 구조
 
@@ -46,7 +60,9 @@ python3 -m http.server 8000
 index.html        화면 구성
 css/style.css     스타일 (라이트/다크 모드, 모바일 대응)
 js/dialog.js      구형 Safari용 팝업 대체 구현
-js/db.js          IndexedDB 저장소
+js/firebase-config.js  Firebase 설정
+js/cloud.js       구글 로그인 · Firestore 저장소
+js/db.js          IndexedDB 저장소 (로그인 전)
 js/util.js        공통 함수 (바코드 체크섬, 이미지 축소, CSV 등)
 js/lookup.js      MusicBrainz / Cover Art Archive 조회
 js/scanner.js     카메라 바코드 스캐너

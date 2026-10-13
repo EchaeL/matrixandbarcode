@@ -13,6 +13,10 @@
   let formCover = null;        // 앨범 폼의 표지 data URL
   let discTarget = null;       // { albumId, discId } — CD 폼 대상
   let prefs = loadPrefs();
+  let store = DB;              // 로그인 전: 기기 저장소(DB), 로그인 후: 계정 저장소(Cloud)
+  let user = null;
+  let unwatch = null;
+  let loaded = false;
 
   // ---------- 초기화 ----------
   async function init() {
@@ -23,17 +27,86 @@
     renderShell();
     route();
 
+    Cloud.onAuth(u => handleAuth(u).catch(err => toast('불러오기 실패: ' + err.message)));
+  }
+
+  // 기기 저장소의 앨범 (이전 버전 형식은 변환해서 다시 저장)
+  async function loadLocal() {
     const stored = await DB.all();
     const migrated = [];
-    albums = stored.map(a => {
+    const list = stored.map(a => {
       const n = normalize(a);
       if (n !== a) migrated.push(n);
       return n;
     });
     if (migrated.length) await DB.putMany(migrated);
-    renderShell();
-    route();
+    return list;
   }
+
+  async function handleAuth(u) {
+    if (unwatch) { unwatch(); unwatch = null; }
+    user = u;
+    if (u) {
+      store = Cloud.store(u.uid);
+      await moveLocalToCloud();
+      unwatch = store.watch(list => {
+        albums = list.map(normalize);
+        loaded = true;
+        refresh();
+      });
+    } else {
+      store = DB;
+      albums = await loadLocal();
+      loaded = true;
+      refresh();
+    }
+    renderAccount();
+  }
+
+  // 로그인 전에 이 기기에 등록해 둔 앨범을 계정으로 옮김
+  async function moveLocalToCloud() {
+    const local = await loadLocal();
+    if (!local.length) return;
+    if (!confirm(`이 기기에 저장된 앨범 ${local.length}개를 내 계정으로 옮길까요?\n옮기면 다른 기기에서도 볼 수 있어요.`)) return;
+    toast('앨범을 옮기는 중…');
+    await store.putMany(local);
+    await DB.clear();
+    toast(`앨범 ${local.length}개를 계정으로 옮겼습니다`);
+  }
+
+  async function signIn() {
+    try { await Cloud.signIn(); } catch (err) { toast('로그인 실패: ' + (err.message || err.code)); }
+  }
+
+  async function signOut() {
+    if (!confirm('로그아웃할까요? 앨범은 계정에 그대로 남아 있습니다.')) return;
+    await Cloud.signOut();
+    toast('로그아웃했습니다');
+  }
+
+  function renderAccount() {
+    const box = $('#account');
+    if (!Cloud.available) {
+      box.innerHTML = '<p class="account-note">서버에 연결할 수 없어 이 기기에만 저장합니다.</p>';
+    } else if (!user) {
+      box.innerHTML = `
+        <p class="account-note">지금은 이 기기에만 저장돼요.<br>로그인하면 어느 기기에서나 볼 수 있어요.</p>
+        <button class="btn block" data-action="signin">${GOOGLE_ICON}Google로 로그인</button>`;
+    } else {
+      const name = user.displayName || user.email || '내 계정';
+      box.innerHTML = `
+        <div class="account-user">
+          ${user.photoURL ? `<img src="${esc(user.photoURL)}" alt="" referrerpolicy="no-referrer">` : `<span class="avatar">${esc(name.slice(0, 1))}</span>`}
+          <div><b>${esc(name)}</b><span>계정에 자동 저장 중</span></div>
+        </div>
+        <button class="link-btn" data-action="signout">로그아웃</button>`;
+    }
+    $('#settings-storage').textContent = user
+      ? `${user.email || '구글 계정'}에 자동으로 저장되고 있어요. 다른 기기에서 같은 계정으로 로그인하면 똑같이 보입니다.`
+      : '지금은 이 기기의 브라우저에만 저장됩니다. 왼쪽 아래에서 Google로 로그인하면 계정에 저장되어 어느 기기에서나 볼 수 있어요.';
+  }
+
+  const GOOGLE_ICON = '<svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.2l7.9 6.2C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.2 5.6c4.2-3.9 7.1-9.6 7.1-17z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.7 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.2-5.6c-2 1.4-4.8 2.3-8.7 2.3-6.2 0-11.5-4.1-13.4-9.8l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>';
 
   // 정렬·통계용 발매 연도 (전체 날짜가 있으면 그 연도)
   function yearOf(a) {
@@ -79,7 +152,17 @@
   }
 
   // ---------- 라우팅 ----------
+  // 데이터가 바뀌었을 때 현재 화면만 다시 그림 (스크롤 유지)
+  function refresh() {
+    renderShell();
+    renderPage(false);
+  }
+
   function route() {
+    renderPage(true);
+  }
+
+  function renderPage(scrollTop) {
     const hash = location.hash.replace(/^#/, '') || '/';
     const [, page, id] = hash.split('/');
     let active = 'list';
@@ -92,8 +175,10 @@
     if (active === 'list') renderList();
     if (active === 'stats') renderStats();
     updateNavActive(active);
-    document.body.classList.remove('nav-open');
-    window.scrollTo(0, 0);
+    if (scrollTop) {
+      document.body.classList.remove('nav-open');
+      window.scrollTo(0, 0);
+    }
   }
 
   function go(hash) {
@@ -106,6 +191,8 @@
 
     document.addEventListener('click', e => {
       if (e.target.closest('[data-action="add"]')) { e.preventDefault(); openAlbumForm(); }
+      if (e.target.closest('[data-action="signin"]')) { e.preventDefault(); signIn(); }
+      if (e.target.closest('[data-action="signout"]')) { e.preventDefault(); signOut(); }
       const closer = e.target.closest('[data-close]');
       if (closer) closer.closest('dialog').close();
     });
@@ -291,8 +378,16 @@
     const title = filter.artist || (filter.status === 'all' ? '전체 앨범' : STATUS_LABEL[filter.status]);
     $('#list-title').textContent = title;
 
-    const list = filtered();
     const container = $('#album-container');
+    if (!loaded) {
+      $('#empty').classList.add('hidden');
+      $('.toolbar').classList.add('hidden');
+      container.classList.remove('hidden');
+      container.innerHTML = '<p class="muted no-result">불러오는 중…</p>';
+      return;
+    }
+    $('#empty-login').classList.toggle('hidden', !!user || !Cloud.available);
+    const list = filtered();
     const empty = albums.length === 0;
     $('#empty').classList.toggle('hidden', !empty);
     container.classList.toggle('hidden', empty);
@@ -620,17 +715,23 @@
     go('#/album/' + encodeURIComponent(album.id));
   }
 
+  // 계정 저장소는 오프라인이면 서버 응답을 기다리지 않고 진행 (연결되면 자동 전송)
+  function persist(promise) {
+    const handled = promise.catch(err => toast('저장 실패: ' + err.message));
+    return user ? Promise.resolve() : handled;
+  }
+
   async function saveAlbum(album) {
-    await DB.put(album);
     const idx = albums.findIndex(a => a.id === album.id);
     if (idx >= 0) albums[idx] = album; else albums.push(album);
     renderShell();
+    await persist(store.put(album));
   }
 
   async function deleteAlbum(id) {
     const a = albums.find(x => x.id === id);
     if (!a || !confirm(`「${a.title}」 앨범을 삭제할까요? 수록 CD 정보도 함께 삭제됩니다.`)) return;
-    await DB.remove(id);
+    persist(store.remove(id));
     albums = albums.filter(x => x.id !== id);
     renderShell();
     toast('삭제했습니다');
@@ -769,8 +870,8 @@
       const valid = list.filter(a => a && a.title && a.artist)
         .map(a => normalize({ ...a, id: a.id || uid(), createdAt: a.createdAt || Date.now() }));
       if (!confirm(`${valid.length}건을 불러옵니다. 같은 앨범이 있으면 덮어씁니다. 계속할까요?`)) return;
-      await DB.putMany(valid);
-      albums = (await DB.all()).map(normalize);
+      await store.putMany(valid);
+      albums = (await store.all()).map(normalize);
       renderShell();
       route();
       toast(`${valid.length}건을 불러왔습니다`);
@@ -783,7 +884,7 @@
     if (!albums.length) return;
     if (!confirm(`앨범 ${albums.length}건을 모두 삭제합니다. 백업하셨나요?`)) return;
     if (prompt('확인을 위해 "삭제"를 입력하세요') !== '삭제') return;
-    await DB.clear();
+    await store.clear();
     albums = [];
     renderShell();
     toast('모든 데이터를 삭제했습니다');

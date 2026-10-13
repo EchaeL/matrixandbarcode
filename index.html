@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=5">
+  <link rel="stylesheet" href="css/style.css?v=6">
 </head>
 <body>
   <!-- 모바일 상단바 -->
@@ -50,6 +50,7 @@
         <a href="#/settings" data-nav="settings">백업 · 설정</a>
       </nav>
 
+      <div id="account" class="account"></div>
       <p class="side-foot" id="side-foot"></p>
     </aside>
     <div id="scrim" class="scrim"></div>
@@ -87,6 +88,7 @@
           <h2>아직 등록된 앨범이 없습니다</h2>
           <p class="muted">첫 앨범을 등록하고, 그 안에 CD를 추가해 보세요.</p>
           <button class="btn primary" data-action="add">＋ 앨범 등록</button>
+          <p id="empty-login" class="empty-login hidden">이미 다른 기기에서 등록했다면 <button class="link-btn" data-action="signin">Google로 로그인</button>하세요.</p>
         </div>
       </section>
 
@@ -103,8 +105,12 @@
       <section id="page-settings" class="page">
         <div class="page-head"><h1>백업 · 설정</h1></div>
         <div class="panel">
-          <h2>백업 및 복원</h2>
-          <p class="muted">데이터는 이 브라우저 안에만 저장됩니다. 기기를 바꾸거나 브라우저 데이터를 지우기 전에 꼭 백업하세요.</p>
+          <h2>저장 위치</h2>
+          <p class="muted" id="settings-storage"></p>
+        </div>
+        <div class="panel">
+          <h2>백업 파일 (선택)</h2>
+          <p class="muted">평소에는 필요 없어요. 혹시 모를 때를 대비해 컬렉션 전체를 파일 하나로 내려받아 둘 수 있습니다. CSV는 엑셀에서 열 수 있어요.</p>
           <div class="row-buttons">
             <button id="btn-export-json" class="btn">JSON 백업 내보내기</button>
             <button id="btn-export-csv" class="btn">CSV 내보내기 (엑셀)</button>
@@ -258,11 +264,16 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <!-- ?v= 값은 배포할 때마다 올려서 Safari가 예전 파일을 캐시해 쓰지 않도록 함 -->
-  <script src="js/dialog.js?v=5"></script>
-  <script src="js/db.js?v=5"></script>
-  <script src="js/util.js?v=5"></script>
-  <script src="js/lookup.js?v=5"></script>
-  <script src="js/scanner.js?v=5"></script>
-  <script src="js/app.js?v=5"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js?v=6"></script>
+  <script src="js/dialog.js?v=6"></script>
+  <script src="js/db.js?v=6"></script>
+  <script src="js/util.js?v=6"></script>
+  <script src="js/lookup.js?v=6"></script>
+  <script src="js/scanner.js?v=6"></script>
+  <script src="js/cloud.js?v=6"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>
